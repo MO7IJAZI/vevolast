@@ -1,0 +1,36 @@
+# ملف متغيرات البيئة لإعدادات Hostinger (الإنتاج)
+# --------------------------------------------------
+# ملاحظة: يجب إدخال هذه المتغيرات في لوحة تحكم Hostinger (قسم Node.js > Environment Variables)
+
+# 1. إعدادات قاعدة البيانات (MySQL)
+# صيغة الرابط: mysql://user:password@host:port/database
+# استبدل القيم أدناه بالقيم التي ستحصل عليها من قسم MySQL Databases في Hostinger
+DATABASE_URL=mysql://u884871213_vevoline_user:Mohijazi762001?@localhost:3306/u884871213_vevoline_db
+
+# 2. إعدادات الجلسة والأمان
+# قم بتغيير SESSION_SECRET إلى كلمة سر طويلة وعشوائية جداً
+SESSION_SECRET=a_very_long_random_string_for_production_safety
+NODE_ENV=production
+PORT=3000
+
+# 3. إعدادات المدير (Admin)
+# هذه البيانات ستستخدم عند تشغيل كود الـ Seeding لأول مرة
+ADMIN_EMAIL=admin@vevoline.com
+ADMIN_PASSWORD=adminadmin123
+
+# 4. إعدادات البريد الإلكتروني (SMTP)
+# يفضل استخدام بريد Hostinger الرسمي أو Gmail
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=vevoline00@gmail.com
+FROM_EMAIL=vevoline00@gmail.com
+SMTP_PASS=hgmyoeuttdxocwrp
+FROM_NAME=VevoLine dashboard
+
+# 5. إعدادات التطبيق
+# يجب وضع الرابط النهائي للموقع (بدون / في النهاية)
+APP_URL=https://vevoline.space
+
+# 6. إعدادات الملفات (Uploads)
+# في Hostinger، المسار عادة ما يكون نسبي لمجلد المشروع
+PRIVATE_OBJECT_DIR=./uploads

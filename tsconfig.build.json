@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "./dist-temp",
+    "module": "ESNext",
+    "target": "ESNext",
+    "moduleResolution": "Node",
+    "allowImportingTsExtensions": false
+  },
+  "include": ["scripts/**/*", "shared/**/*", "server/**/*"]
+}
