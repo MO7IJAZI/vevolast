@@ -1,5 +1,10 @@
 # سكريبتات النشر على VPS باستخدام PM2
 
+## التحديثات الجديدة ✓
+- ✓ دعم MySQL بالكامل
+- ✓ تشغيل الـ Migration تلقائياً أثناء الـ Build
+- ✓ كلمة مرور الأدمن: `adminadmin123`
+
 ## 1. استنساخ المشروع
 ```bash
 git clone https://github.com/MO7IJAZI/vevolast.git
@@ -53,43 +58,26 @@ CREATE DATABASE vevospace CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 EXIT;
 ```
 
-## 5. تشغيل الـ Migrations (لإنشاء الجداول)
-```bash
-npm run db:push
-```
-
-## 6. بناء المشروع
+## 5. بناء المشروع (يشمل إنشاء الجداول تلقائياً)
 ```bash
 npm run build
 ```
 
----
+**هذا الأمر سيقوم تلقائياً بـ:**
+- إنشاء جميع جداول قاعدة البيانات
+- بناء الـ Frontend
+- بناء الـ Backend
 
-## حل مشكلة "EADDRINUSE: address already in use"
+## 6. تشغيل المشروع باستخدام PM2
 
-المنفذ 3001 مستخدم من قبل تطبيق آخر. اتبع أحد الحلول:
-
-### الحل الأول: إيقاف جميع التطبيقات وتشغيل التطبيق الجديد
+### تشغيل التطبيق
 ```bash
-pm2 delete all
 pm2 start dist/index.js --name vevoline
-pm2 save
 ```
 
-### الحل الثاني: إيقاف التطبيق المحدد فقط
+### حفظ حالة PM2
 ```bash
-pm2 delete index
-pm2 start dist/index.js --name vevoline
 pm2 save
-```
-
-### الحل الثالث: إذا كان هناك تطبيق آخر يستخدم المنفذ
-```bash
-# معرفة ما يستخدم المنفذ 3001
-sudo lsof -i :3001
-
-# إيقاف العملية
-sudo kill <PID>
 ```
 
 ---
@@ -113,15 +101,49 @@ pm2 restart vevoline
 
 ---
 
+## حل مشكلة 502 Bad Gateway
+
+### 1. تحقق أن التطبيق يعمل
+```bash
+pm2 status
+```
+
+### 2. تحقق من أن المنفذ يعمل
+```bash
+curl http://localhost:3001
+```
+
+### 3. أعد تشغيل NGINX
+```bash
+sudo systemctl reload nginx
+```
+
+---
+
+## حل مشكلة "EADDRINUSE"
+
+```bash
+pm2 delete all
+pm2 start dist/index.js --name vevoline
+pm2 save
+```
+
+---
+
 ## تحديث التطبيق (Redeploy)
 
 ```bash
 cd vevolast
 git pull
 npm install
-npm run db:push
 npm run build
-pm2 delete vevoline
-pm2 start dist/index.js --name vevoline
-pm2 save
+pm2 restart vevoline
 ```
+
+---
+
+## تسجيل الدخول
+
+- **الرابط:** https://www.vevoline.space
+- **الإيميل:** admin@vevoline.com
+- **كلمة المرور:** adminadmin123
