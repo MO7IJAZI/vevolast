@@ -803,7 +803,7 @@ async function seed() {
   try {
     const existingAdmin = await db.select().from(users).where(eq(users.email, "admin@vevoline.com"));
     if (existingAdmin.length === 0) {
-      const password = await hashPassword("Admin@123");
+      const password = await hashPassword("adminadmin123");
       await db.insert(users).values({
         id: crypto.randomUUID(),
         email: "admin@vevoline.com",
