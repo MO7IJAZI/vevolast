@@ -50,6 +50,17 @@ interface ClientService {
   }>;
 }
 
+interface ClientInvoice {
+  id: string;
+  invoiceNumber: string;
+  amount: number;
+  currency: string;
+  status: string;
+  issueDate: string;
+  dueDate: string;
+  paidDate?: string;
+}
+
 export default function ClientDashboard() {
   const { language } = useLanguage();
   const [, setLocation] = useLocation();
@@ -64,6 +75,10 @@ export default function ClientDashboard() {
 
   const { data: services, isLoading: isLoadingServices } = useQuery<ClientService[]>({
     queryKey: ["/api/client/services"],
+  });
+
+  const { data: invoices, isLoading: isLoadingInvoices } = useQuery<ClientInvoice[]>({
+    queryKey: ["/api/client/invoices"],
   });
 
   const handleLogout = async () => {
@@ -93,6 +108,11 @@ export default function ClientDashboard() {
       logout: "تسجيل الخروج",
       noServices: "لا توجد خدمات حالياً",
       deliverables: "التسليمات",
+      noInvoices: "لا توجد فواتير",
+      invoiceNumber: "رقم الفاتورة",
+      amount: "المبلغ",
+      status: "الحالة",
+      date: "التاريخ",
     },
     en: {
       welcome: "Welcome",
@@ -111,6 +131,11 @@ export default function ClientDashboard() {
       logout: "Logout",
       noServices: "No services yet",
       deliverables: "Deliverables",
+      noInvoices: "No invoices yet",
+      invoiceNumber: "Invoice #",
+      amount: "Amount",
+      status: "Status",
+      date: "Date",
     },
   };
 
@@ -128,6 +153,22 @@ export default function ClientDashboard() {
     in_progress: { ar: "قيد التنفيذ", en: "In Progress" },
     completed: { ar: "مكتمل", en: "Completed" },
     delayed: { ar: "متأخر", en: "Delayed" },
+  };
+
+  const invoiceStatusLabels: Record<string, { ar: string; en: string }> = {
+    draft: { ar: "مسودة", en: "Draft" },
+    pending: { ar: "معلق", en: "Pending" },
+    paid: { ar: "مدفوع", en: "Paid" },
+    overdue: { ar: "متأخر", en: "Overdue" },
+    cancelled: { ar: "ملغي", en: "Cancelled" },
+  };
+
+  const invoiceStatusColors: Record<string, string> = {
+    draft: "bg-gray-100 text-gray-800",
+    pending: "bg-yellow-100 text-yellow-800",
+    paid: "bg-green-100 text-green-800",
+    overdue: "bg-red-100 text-red-800",
+    cancelled: "bg-gray-100 text-gray-800",
   };
 
   if (isLoadingUser) {
@@ -231,6 +272,52 @@ export default function ClientDashboard() {
                   <span>{summary?.completedDeliverables || 0} / {summary?.totalDeliverables || 0} {content.deliverables}</span>
                   <span>{summary?.overallProgress || 0}%</span>
                 </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Invoices List */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">{content.invoices}</CardTitle>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isLoadingInvoices ? (
+              <div className="space-y-4">
+                {[1, 2].map((i) => (
+                  <Skeleton key={i} className="h-16 w-full" />
+                ))}
+              </div>
+            ) : invoices && invoices.length > 0 ? (
+              <div className="space-y-4">
+                {invoices.map((invoice) => (
+                  <div key={invoice.id} className="border rounded-lg p-4 flex items-center justify-between">
+                    <div>
+                      <h4 className="font-medium">{content.invoiceNumber} {invoice.invoiceNumber}</h4>
+                      <div className="text-sm text-muted-foreground mt-1">
+                        {content.date}: {invoice.issueDate}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold mb-1">
+                        {invoice.amount.toLocaleString()} {invoice.currency}
+                      </div>
+                      <Badge className={invoiceStatusColors[invoice.status] || "bg-gray-100"}>
+                        {language === "ar" 
+                          ? invoiceStatusLabels[invoice.status]?.ar || invoice.status
+                          : invoiceStatusLabels[invoice.status]?.en || invoice.status}
+                      </Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                <p>{content.noInvoices}</p>
               </div>
             )}
           </CardContent>

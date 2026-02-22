@@ -22,7 +22,7 @@ import {
   insertSystemSettingsSchema,
   // attendance,
   // insertAttendanceSchema
-} from "@shared/schema";
+} from "../shared/schema.js";
 import { z } from "zod";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage/routes";
 import { getExchangeRates, convertCurrency, refreshExchangeRates } from "./exchangeRates";
@@ -247,8 +247,14 @@ export async function registerRoutes(
 
   app.patch("/api/client-services/:id", async (req, res) => {
     try {
-      const validated = insertClientServiceSchema.partial().parse(req.body);
+      const { deliverables, ...serviceData } = req.body;
+      const validated = insertClientServiceSchema.partial().parse(serviceData);
       const service = await storage.updateClientService(req.params.id, validated);
+      
+      if (service && deliverables && Array.isArray(deliverables)) {
+        await storage.updateServiceDeliverables(req.params.id, deliverables);
+      }
+
       if (!service) {
         return res.status(404).json({ error: "Service not found" });
       }

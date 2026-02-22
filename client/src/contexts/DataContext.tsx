@@ -34,6 +34,7 @@ export type EventPriority = "low" | "medium" | "high";
 export interface ServiceDeliverable {
   key: string;
   label: string;
+  labelAr?: string;
   labelEn?: string;
   target: number;
   completed: number;
@@ -178,6 +179,7 @@ export interface Invoice {
   id: string;
   invoiceNumber: string;
   clientId: string;
+  serviceId?: string;
   clientName: string;
   amount: number;
   currency: Currency;
@@ -1524,6 +1526,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           mainPackageId: s.mainPackageId,
           subPackageId: s.subPackageId,
           completedDate: s.completedAt ? new Date(s.completedAt).toISOString().split('T')[0] : undefined,
+          deliverables: s.deliverables,
         };
       }) || [];
 
@@ -1738,6 +1741,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (updates.subPackageId) serviceUpdates.subPackageId = updates.subPackageId;
       if (updates.notes) serviceUpdates.notes = updates.notes;
       if (updates.completedDate) serviceUpdates.completedAt = updates.completedDate ? new Date(updates.completedDate) : null;
+      if (updates.deliverables) serviceUpdates.deliverables = updates.deliverables;
 
       await apiRequest("PATCH", `/api/client-services/${id}`, serviceUpdates);
     },
@@ -2406,7 +2410,8 @@ export function useData() {
 }
 
 // Export types and constants
-export { initialPackages as seedPackages };
+// Export types and constants
+export { initialPackages as seedPackages, Currency };
 export const serviceCategories = [
   { key: "social_media", labelAr: "سوشيال ميديا", labelEn: "Social Media" },
   { key: "website", labelAr: "موقع إلكتروني", labelEn: "Website" },

@@ -192,6 +192,10 @@ app.use((req, res, next) => {
         fileLog("Vite setup complete");
       } catch (viteErr: any) {
         fileLog(`Failed to setup Vite: ${viteErr?.message || viteErr}`);
+        try {
+          serveStatic(app);
+          fileLog("Vite failed; serving static files as fallback");
+        } catch {}
       }
     }
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -12,32 +12,82 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { useData } from "@/contexts/DataContext";
 import { cn } from "@/lib/utils";
-
-const monthlyData = [
-  { month: "Jan", monthAr: "يناير", income: 42000, expenses: 28000 },
-  { month: "Feb", monthAr: "فبراير", income: 38000, expenses: 25000 },
-  { month: "Mar", monthAr: "مارس", income: 55000, expenses: 32000 },
-  { month: "Apr", monthAr: "أبريل", income: 48000, expenses: 30000 },
-  { month: "May", monthAr: "مايو", income: 62000, expenses: 35000 },
-  { month: "Jun", monthAr: "يونيو", income: 58000, expenses: 38000 },
-];
-
-const weeklyData = [
-  { month: "Week 1", monthAr: "الأسبوع 1", income: 12000, expenses: 8000 },
-  { month: "Week 2", monthAr: "الأسبوع 2", income: 15000, expenses: 9500 },
-  { month: "Week 3", monthAr: "الأسبوع 3", income: 18000, expenses: 11000 },
-  { month: "Week 4", monthAr: "الأسبوع 4", income: 13000, expenses: 9000 },
-];
+import { format, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, subWeeks, isSameMonth, isSameWeek, parseISO } from "date-fns";
+import { arSA, enUS } from "date-fns/locale";
 
 type Period = "weekly" | "monthly";
 
 export function IncomeChart() {
   const { language, direction } = useLanguage();
   const { formatCurrency, convertAmount, currency: displayCurrency } = useCurrency();
+  const { transactions } = useData();
   const [period, setPeriod] = useState<Period>("monthly");
 
-  const data = period === "weekly" ? weeklyData : monthlyData;
+  const data = useMemo(() => {
+    const now = new Date();
+    
+    if (period === "monthly") {
+      // Last 6 months
+      const result = [];
+      for (let i = 5; i >= 0; i--) {
+        const date = subMonths(now, i);
+        const monthStart = startOfMonth(date);
+        const monthEnd = endOfMonth(date);
+        
+        const monthTransactions = transactions.filter(t => {
+          const tDate = new Date(t.date);
+          return tDate >= monthStart && tDate <= monthEnd;
+        });
+
+        const income = monthTransactions
+          .filter(t => t.type === "income")
+          .reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
+          
+        const expenses = monthTransactions
+          .filter(t => t.type === "expense")
+          .reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
+
+        result.push({
+          month: format(date, "MMM", { locale: enUS }),
+          monthAr: format(date, "MMM", { locale: arSA }),
+          income,
+          expenses
+        });
+      }
+      return result;
+    } else {
+      // Last 4 weeks
+      const result = [];
+      for (let i = 3; i >= 0; i--) {
+        const date = subWeeks(now, i);
+        const weekStart = startOfWeek(date, { weekStartsOn: 1 }); // Monday start
+        const weekEnd = endOfWeek(date, { weekStartsOn: 1 });
+        
+        const weekTransactions = transactions.filter(t => {
+          const tDate = new Date(t.date);
+          return tDate >= weekStart && tDate <= weekEnd;
+        });
+
+        const income = weekTransactions
+          .filter(t => t.type === "income")
+          .reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
+          
+        const expenses = weekTransactions
+          .filter(t => t.type === "expense")
+          .reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
+
+        result.push({
+          month: `Week ${4-i}`,
+          monthAr: `الأسبوع ${4-i}`,
+          income,
+          expenses
+        });
+      }
+      return result;
+    }
+  }, [period, transactions, convertAmount, displayCurrency]);
 
   const periods: { value: Period; labelEn: string; labelAr: string }[] = [
     { value: "weekly", labelEn: "Weekly", labelAr: "أسبوعي" },

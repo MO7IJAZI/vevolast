@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { exchangeRates } from "@shared/schema";
+import { exchangeRates } from "../shared/schema.js";
 import { desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
 

@@ -1,8 +1,8 @@
 import { Express, Request, Response } from "express";
 import { requireClientAuth } from "./auth";
 import { db } from "./db";
-import { clientServices, serviceDeliverables } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { clientServices, serviceDeliverables, invoices } from "../shared/schema.js";
+import { eq, and, desc } from "drizzle-orm";
 
 export function registerClientPortalRoutes(app: Express) {
   // Get client's services (work tracking)
@@ -111,7 +111,7 @@ export function registerClientPortalRoutes(app: Express) {
     }
   });
 
-  // Get client's invoices (placeholder - will integrate with actual invoices when available)
+  // Get client's invoices
   app.get("/api/client/invoices", requireClientAuth, async (req, res) => {
     try {
       const clientId = req.session.clientId;
@@ -120,8 +120,13 @@ export function registerClientPortalRoutes(app: Express) {
         return res.status(400).json({ error: "Client ID not found in session" });
       }
       
-      // Return empty array for now - will be populated from DataContext invoices
-      res.json([]);
+      const clientInvoices = await db
+        .select()
+        .from(invoices)
+        .where(eq(invoices.clientId, clientId))
+        .orderBy(desc(invoices.createdAt));
+      
+      res.json(clientInvoices);
     } catch (error) {
       console.error("Get client invoices error:", error);
       res.status(500).json({ error: "Failed to fetch invoices" });

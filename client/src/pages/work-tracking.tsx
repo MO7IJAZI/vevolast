@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useData, type ServiceItem, type ConfirmedClient, type ServiceDeliverable } from "@/contexts/DataContext";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -87,6 +88,7 @@ interface ClientWithServices {
 }
 
 export default function WorkTrackingPage() {
+  const queryClient = useQueryClient();
   const { language } = useLanguage();
   const { clients, employees, mainPackages, subPackages, updateService, updateClient, reactivateClient } = useData();
   const [searchQuery, setSearchQuery] = useState("");
@@ -400,6 +402,7 @@ export default function WorkTrackingPage() {
         return {
           ...d,
           label: language === "ar" ? labels.ar : labels.en,
+          labelAr: labels.ar,
           labelEn: labels.en,
         };
       });
@@ -411,6 +414,7 @@ export default function WorkTrackingPage() {
       return template.map(t => ({
         key: t.key,
         label: language === "ar" ? t.labelAr : t.labelEn,
+        labelAr: t.labelAr,
         labelEn: t.labelEn,
         target: t.defaultTarget,
         completed: 0,
@@ -471,11 +475,13 @@ export default function WorkTrackingPage() {
       status: "in_progress",
       completedDate: undefined,
     });
+    queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
   };
 
   // Handle reactivate entire client (all services back to in_progress)
   const handleReactivateClient = (clientId: string) => {
     reactivateClient(clientId, true); // true = reset all services to in_progress
+    queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
   };
 
   // Handle mark service completed
@@ -488,6 +494,7 @@ export default function WorkTrackingPage() {
       status: "completed",
       completedDate: new Date().toISOString().split("T")[0],
     });
+    queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
 
     // Check if all services are completed
     const remainingActive = client.services.filter(s => 

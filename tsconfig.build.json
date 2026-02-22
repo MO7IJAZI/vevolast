@@ -3,10 +3,10 @@
   "compilerOptions": {
     "noEmit": false,
     "outDir": "./dist-temp",
-    "module": "ESNext",
+    "module": "NodeNext",
     "target": "ESNext",
-    "moduleResolution": "Node",
+    "moduleResolution": "NodeNext",
     "allowImportingTsExtensions": false
   },
-  "include": ["scripts/**/*", "shared/**/*", "server/**/*"]
+  "include": ["script/**/*", "shared/**/*", "server/**/*"]
 }

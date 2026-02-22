@@ -67,7 +67,7 @@ export default function Dashboard() {
 
   const content = {
     ar: {
-      welcome: "مرحباً بك، أسامة",
+      welcome: `مرحباً بك، ${user?.name || 'مستخدم'}`,
       currentBalance: "الرصيد الحالي",
       totalIncome: "إجمالي الإيرادات",
       totalExpenses: "إجمالي المصروفات",
@@ -87,7 +87,7 @@ export default function Dashboard() {
       totalSalaries: "إجمالي الرواتب",
     },
     en: {
-      welcome: "Welcome back, Osama",
+      welcome: `Welcome back, ${user?.name || 'User'}`,
       currentBalance: "Current Balance",
       totalIncome: "Total Income",
       totalExpenses: "Total Expenses",

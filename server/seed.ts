@@ -5,7 +5,7 @@ import {
   mainPackages, subPackages, invoices, 
   employees, employeeSalaries, goals, 
   transactions, payrollPayments, CalendarEvent
-} from "@shared/schema";
+} from "../shared/schema.js";
 import { hashPassword, roleDefaultPermissions } from "./auth";
 import { eq, sql } from "drizzle-orm";
 import crypto from "crypto";

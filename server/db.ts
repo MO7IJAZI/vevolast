@@ -1,6 +1,6 @@
 import { createPool } from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
-import * as schema from "@shared/schema";
+import * as schema from "../shared/schema.js";
 
 if (!process.env.DATABASE_URL && !process.env.DB_HOST) {
   console.warn("DATABASE_URL or DB_HOST is not set. Database connection may fail.");

@@ -2,7 +2,7 @@ import { Express, Request, Response, NextFunction } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { db } from "./db";
-import { users, invitations, passwordResets, clientUsers, Permission } from "@shared/schema";
+import { users, invitations, passwordResets, clientUsers, Permission } from "../shared/schema.js";
 import { eq, and, gt } from "drizzle-orm";
 import { sendInvitationEmail, sendPasswordResetEmail } from "./email";
 

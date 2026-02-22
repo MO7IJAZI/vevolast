@@ -20,7 +20,7 @@ import {
   calendarEvents, notifications, workSessions, clients, leads, clientServices,
   mainPackages, subPackages, invoices, employees, systemSettings,
   users, goals, serviceDeliverables, workActivityLogs, serviceReports, clientUsers
-} from "@shared/schema";
+} from "../shared/schema.js";
 import { db } from "./db";
 import { randomUUID } from "crypto";
 import { eq, and, desc, or, isNull, sql, inArray } from "drizzle-orm";
@@ -147,9 +147,10 @@ export interface IStorage {
   createClientWithService(client: InsertClient, service: Omit<InsertClientService, "clientId">): Promise<{ client: Client, service: ClientService }>;
 
   // Client Services
-  getClientServices(clientId?: string): Promise<ClientService[]>;
+  getClientServices(clientId?: string): Promise<(ClientService & { deliverables: any[] })[]>;
   createClientService(service: InsertClientService): Promise<ClientService>;
   updateClientService(id: string, service: Partial<InsertClientService>): Promise<ClientService | undefined>;
+  updateServiceDeliverables(serviceId: string, deliverables: any[]): Promise<void>;
   deleteClientService(id: string): Promise<boolean>;
 
   // Main Packages
@@ -559,11 +560,69 @@ export class DatabaseStorage implements IStorage {
       totalPaidSalaries += converted;
     }
 
+    // Calculate Overdue Amount
+    // Get all client services and payments to calculate overdue
+    const allServices = await this.getClientServices();
+    const allPayments = await this.getClientPayments({});
+    const allSubPackages = await this.getSubPackages();
+    const subPackageMap = new Map(allSubPackages.map(sp => [sp.id, sp]));
+
+    let overdueAmount = 0;
+    const todayStr = now.toISOString().split('T')[0];
+
+    for (const service of allServices) {
+      if (!service.price || service.status === 'cancelled') continue;
+
+      const subPackage = service.subPackageId ? subPackageMap.get(service.subPackageId) : null;
+      const billingType = subPackage?.billingType || 'one_time';
+      
+      const servicePrice = await convertCurrency(service.price, service.currency || 'USD', displayCurrency);
+
+      if (billingType === 'monthly') {
+        // For monthly services, check if payment for THIS month is made
+        // Only if service is active
+        if (service.status === 'active') {
+             const servicePaymentsThisMonth = allPayments.filter(p => 
+                p.serviceId === service.id && 
+                p.month === currentMonth && 
+                p.year === currentYear
+             );
+             
+             let totalPaid = 0;
+             for (const p of servicePaymentsThisMonth) {
+                const paymentAmount = await convertCurrency(p.amount, p.currency, displayCurrency);
+                totalPaid += paymentAmount;
+             }
+             
+             if (totalPaid < servicePrice - 1) {
+                overdueAmount += (servicePrice - totalPaid);
+             }
+        }
+      } else {
+        // For one-time/project services
+        // Check if service has end date is past or today
+        if (service.endDate && service.endDate < todayStr) {
+            // Calculate total paid for this service (lifetime)
+            const servicePayments = allPayments.filter(p => p.serviceId === service.id);
+            let totalPaid = 0;
+            
+            for (const p of servicePayments) {
+              const paymentAmount = await convertCurrency(p.amount, p.currency, displayCurrency);
+              totalPaid += paymentAmount;
+            }
+
+            if (totalPaid < servicePrice - 1) { 
+              overdueAmount += (servicePrice - totalPaid);
+            }
+        }
+      }
+    }
+
     return {
       totalIncome: Math.round(totalIncome * 100) / 100,
       totalExpenses: Math.round(totalExpenses * 100) / 100,
       netProfit: Math.round((totalIncome - totalExpenses) * 100) / 100,
-      overdueAmount: 0, // To be calculated based on client expected payments
+      overdueAmount: Math.round(overdueAmount * 100) / 100,
       payrollRemaining: Math.round((totalExpectedSalaries - totalPaidSalaries) * 100) / 100,
       displayCurrency,
     };
@@ -988,12 +1047,33 @@ export class DatabaseStorage implements IStorage {
 
   // ========== CLIENT SERVICES METHODS ==========
 
-  async getClientServices(clientId?: string): Promise<ClientService[]> {
+  async getClientServices(clientId?: string): Promise<(ClientService & { deliverables: any[] })[]> {
     try {
+      let services;
       if (clientId) {
-        return await db.select().from(clientServices).where(eq(clientServices.clientId, clientId));
+        services = await db.select().from(clientServices).where(eq(clientServices.clientId, clientId));
+      } else {
+        services = await db.select().from(clientServices);
       }
-      return await db.select().from(clientServices);
+
+      if (services.length === 0) return [];
+
+      const serviceIds = services.map(s => s.id);
+      const deliverables = await db.select().from(serviceDeliverables)
+        .where(inArray(serviceDeliverables.serviceId, serviceIds));
+
+      return services.map(service => ({
+        ...service,
+        deliverables: deliverables.filter(d => d.serviceId === service.id).map(d => ({
+          key: d.key,
+          label: d.labelAr, 
+          labelAr: d.labelAr,
+          labelEn: d.labelEn,
+          target: d.target,
+          completed: d.completed,
+          isBoolean: d.isBoolean
+        }))
+      }));
     } catch (error) {
       console.error("Error fetching client services:", error);
       return [];
@@ -1035,6 +1115,47 @@ export class DatabaseStorage implements IStorage {
     } catch (error) {
       console.error("Error updating client service:", error);
       return undefined;
+    }
+  }
+
+  async updateServiceDeliverables(serviceId: string, deliverables: any[]): Promise<void> {
+    try {
+      await db.transaction(async (tx) => {
+        for (const d of deliverables) {
+          // Check if exists
+          const existing = await tx.select().from(serviceDeliverables).where(
+            and(
+              eq(serviceDeliverables.serviceId, serviceId),
+              eq(serviceDeliverables.key, d.key)
+            )
+          );
+          
+          if (existing.length > 0) {
+            await tx.update(serviceDeliverables).set({
+              labelAr: d.labelAr || d.label, 
+              labelEn: d.labelEn || d.label, 
+              target: d.target,
+              completed: d.completed,
+              isBoolean: d.isBoolean,
+              updatedAt: new Date()
+            }).where(eq(serviceDeliverables.id, existing[0].id));
+          } else {
+            await tx.insert(serviceDeliverables).values({
+              id: randomUUID(),
+              serviceId,
+              key: d.key,
+              labelAr: d.labelAr || d.label,
+              labelEn: d.labelEn || d.label,
+              target: d.target,
+              completed: d.completed,
+              isBoolean: d.isBoolean
+            });
+          }
+        }
+      });
+    } catch (error) {
+      console.error("Error updating service deliverables:", error);
+      throw error;
     }
   }
 
@@ -1152,12 +1273,64 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateInvoice(id: string, invoice: Partial<InsertInvoice>): Promise<Invoice | undefined> {
-    await db
-      .update(invoices)
-      .set({ ...invoice, updatedAt: new Date() })
-      .where(eq(invoices.id, id));
-    const result = await db.select().from(invoices).where(eq(invoices.id, id));
-    return result[0];
+    return await db.transaction(async (tx) => {
+      // Get existing invoice to check previous status
+      const existingInvoices = await tx.select().from(invoices).where(eq(invoices.id, id));
+      const existingInvoice = existingInvoices[0];
+      
+      if (!existingInvoice) return undefined;
+
+      // Update the invoice
+      await tx
+        .update(invoices)
+        .set({ ...invoice, updatedAt: new Date() })
+        .where(eq(invoices.id, id));
+
+      const updatedInvoices = await tx.select().from(invoices).where(eq(invoices.id, id));
+      const updatedInvoice = updatedInvoices[0];
+
+      // Check if status changed to "paid" and wasn't already paid
+      if (invoice.status === "paid" && existingInvoice.status !== "paid") {
+        const paymentDateStr = updatedInvoice.paidDate || new Date().toISOString().split('T')[0];
+        const paymentDate = new Date(paymentDateStr);
+        const month = paymentDate.getMonth() + 1;
+        const year = paymentDate.getFullYear();
+
+        // Create Client Payment
+        const paymentId = randomUUID();
+        const paymentData: InsertClientPayment = {
+          clientId: updatedInvoice.clientId,
+          serviceId: (updatedInvoice as any).serviceId,
+          amount: updatedInvoice.amount,
+          currency: updatedInvoice.currency,
+          paymentDate: paymentDateStr,
+          month,
+          year,
+          paymentMethod: updatedInvoice.paymentMethod || "bank_transfer",
+          notes: `Payment for Invoice #${updatedInvoice.invoiceNumber}`,
+        };
+        
+        await tx.insert(clientPayments).values({ ...paymentData, id: paymentId });
+
+        // Create Transaction (Income)
+        const transactionId = randomUUID();
+        await tx.insert(transactions).values({
+          id: transactionId,
+          type: "income",
+          category: "client_payment",
+          amount: updatedInvoice.amount,
+          currency: updatedInvoice.currency,
+          date: paymentDateStr,
+          description: `Invoice Payment #${updatedInvoice.invoiceNumber}`,
+          relatedType: "client_payment",
+          relatedId: paymentId,
+          clientId: updatedInvoice.clientId,
+          serviceId: (updatedInvoice as any).serviceId,
+        });
+      }
+
+      return updatedInvoice;
+    });
   }
 
   async deleteInvoice(id: string): Promise<boolean> {

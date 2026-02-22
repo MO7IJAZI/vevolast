@@ -115,7 +115,7 @@ export default function FinancePage() {
     return null;
   }
   const { language } = useLanguage();
-  const { clients, employees } = useData();
+  const { clients, employees, subPackages } = useData();
   const { convertAmount, formatCurrency, currency: displayCurrency } = useCurrency();
   const [activeTab, setActiveTab] = useState("overview");
   
@@ -395,6 +395,18 @@ export default function FinancePage() {
   });
   const employeeSalariesData = Array.isArray(employeeSalariesDataRaw) ? employeeSalariesDataRaw : [];
 
+  // Fetch finance summary
+  const { data: financeSummary } = useQuery({
+    queryKey: ["/api/finance-summary", { month: selectedMonthNum, year: selectedYear, displayCurrency }],
+    queryFn: async () => {
+      const res = await fetch(`/api/finance-summary?month=${selectedMonthNum}&year=${selectedYear}&displayCurrency=${displayCurrency}`, {
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch finance summary");
+      return res.json();
+    },
+  });
+
   const resetIncomeForm = () => {
     setIncomeForm({ clientId: "", serviceId: "", amount: "", currency: "USD", date: new Date().toISOString().split("T")[0], notes: "" });
   };
@@ -440,6 +452,7 @@ export default function FinancePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
       setExpenseModalOpen(false);
       resetExpenseForm();
       toast({
@@ -464,6 +477,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
       setIncomeModalOpen(false);
       resetIncomeForm();
       setEditingClientPayment(null);
@@ -489,6 +503,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
       setPaymentModalEmployee(null);
       resetPayrollForm();
       setEditingPayrollPayment(null);
@@ -514,6 +529,7 @@ export default function FinancePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
       setExpenseModalOpen(false);
       setTransactionEditModalOpen(false);
       setEditingTransaction(null);
@@ -541,6 +557,7 @@ export default function FinancePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
       toast({
         title: language === "ar" ? "تم بنجاح" : "Success",
         description: language === "ar" ? "تم حذف المعاملة بنجاح" : "Transaction deleted successfully",
@@ -562,6 +579,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
       setIncomeModalOpen(false);
       setEditingClientPayment(null);
       resetIncomeForm();
@@ -586,6 +604,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
       toast({
         title: language === "ar" ? "تم بنجاح" : "Success",
         description: language === "ar" ? "تم حذف الدفعة بنجاح" : "Payment deleted successfully",
@@ -607,6 +626,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
       setPaymentModalEmployee(null);
       setEditingPayrollPayment(null);
       resetPayrollForm();
@@ -631,6 +651,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
       toast({
         title: language === "ar" ? "تم بنجاح" : "Success",
         description: language === "ar" ? "تم حذف دفعة الراتب بنجاح" : "Payroll payment deleted successfully",
@@ -667,6 +688,26 @@ export default function FinancePage() {
         description: language === "ar" ? "يرجى إدخال المبلغ" : "Please enter the amount",
       });
       return;
+    }
+
+    // Check for incomplete deliverables if a service is selected
+    if (incomeForm.serviceId) {
+      const selectedClient = clients.find(c => c.id === incomeForm.clientId);
+      const selectedService = selectedClient?.services.find(s => s.id === incomeForm.serviceId);
+      
+      if (selectedService && selectedService.deliverables && selectedService.deliverables.length > 0) {
+        const incompleteDeliverables = selectedService.deliverables.filter((d: any) => d.completed < d.target);
+        
+        if (incompleteDeliverables.length > 0) {
+          const confirmMessage = language === "ar" 
+            ? `تنبيه: هذه الخدمة تحتوي على ${incompleteDeliverables.length} تسليمات غير مكتملة. هل أنت متأكد من تسجيل الدفعة؟` 
+            : `Warning: This service has ${incompleteDeliverables.length} incomplete deliverables. Are you sure you want to record payment?`;
+            
+          if (!window.confirm(confirmMessage)) {
+            return;
+          }
+        }
+      }
     }
 
     const { year, month } = getMonthYearFromDate(incomeForm.date);
@@ -896,9 +937,16 @@ export default function FinancePage() {
   const clientFinanceData = useMemo(() => {
     return clients.filter(c => c.status === "active").map(client => {
       const services = Array.isArray(client.services) ? client.services : [];
+      
       const expectedMonthly = services.reduce((sum, svc) => {
         if (svc.price && svc.currency) {
-          return sum + convertAmount(svc.price, svc.currency as Currency, displayCurrency);
+          // Check if service is monthly
+          const subPackage = subPackages.find(sp => sp.id === svc.subPackageId);
+          const billingType = subPackage?.billingType || 'one_time';
+          
+          if (billingType === 'monthly') {
+            return sum + convertAmount(svc.price, svc.currency as Currency, displayCurrency);
+          }
         }
         return sum;
       }, 0);
@@ -908,11 +956,34 @@ export default function FinancePage() {
         p.year === selectedYear && 
         p.month === selectedMonthNum
       );
+      
       const paidThisMonth = paymentsThisMonth.reduce((sum, p) => {
         return sum + convertAmount(p.amount, p.currency as Currency, displayCurrency);
       }, 0);
       
-      const dueRaw = expectedMonthly - paidThisMonth;
+      // Calculate paid amount specifically for monthly services to determine due amount
+      const paidForMonthlyServices = paymentsThisMonth.reduce((sum, p) => {
+        let isMonthly = false;
+        
+        if (p.serviceId) {
+           const service = services.find(s => s.id === p.serviceId);
+           if (service) {
+             const subPackage = subPackages.find(sp => sp.id === service.subPackageId);
+             const billingType = subPackage?.billingType || 'one_time';
+             if (billingType === 'monthly') isMonthly = true;
+           }
+        } else {
+           // If no service specified, count towards monthly obligations (general payment)
+           isMonthly = true;
+        }
+        
+        if (isMonthly) {
+           return sum + convertAmount(p.amount, p.currency as Currency, displayCurrency);
+        }
+        return sum;
+      }, 0);
+      
+      const dueRaw = expectedMonthly - paidForMonthlyServices;
       const due = dueRaw > 0.01 ? dueRaw : 0;
       
       return {
@@ -925,43 +996,27 @@ export default function FinancePage() {
         payments: paymentsThisMonth,
       };
     });
-  }, [clients, clientPaymentsData, displayCurrency, convertAmount]);
+  }, [clients, clientPaymentsData, displayCurrency, convertAmount, subPackages, selectedYear, selectedMonthNum]);
 
   const overviewTotals = useMemo(() => {
-    const totalIncome = clientPaymentsData.reduce((sum, p) => {
-      return sum + convertAmount(p.amount, p.currency as Currency, displayCurrency);
-    }, 0) + incomeTransactions.reduce((sum, tx) => {
-      return sum + convertAmount(tx.amount, tx.currency as Currency, displayCurrency);
-    }, 0);
-
-    const totalExpenses = expenseTransactions.reduce((sum, tx) => {
-      return sum + convertAmount(tx.amount, tx.currency as Currency, displayCurrency);
-    }, 0);
-
-    const overdueAmount = clientFinanceData.reduce((sum, client) => {
-      return client.isOverdue ? sum + client.due : sum;
-    }, 0);
-
-    const payrollRemaining = payrollData.reduce((sum, payroll) => {
-      return sum + payroll.remaining;
-    }, 0);
+    if (financeSummary) {
+      return {
+        totalIncome: financeSummary.totalIncome,
+        totalExpenses: financeSummary.totalExpenses,
+        netProfit: financeSummary.netProfit,
+        overdueAmount: financeSummary.overdueAmount,
+        payrollRemaining: financeSummary.payrollRemaining,
+      };
+    }
 
     return {
-      totalIncome,
-      totalExpenses,
-      netProfit: totalIncome - totalExpenses,
-      overdueAmount,
-      payrollRemaining,
+      totalIncome: 0,
+      totalExpenses: 0,
+      netProfit: 0,
+      overdueAmount: 0,
+      payrollRemaining: 0,
     };
-  }, [
-    clientPaymentsData,
-    incomeTransactions,
-    expenseTransactions,
-    clientFinanceData,
-    payrollData,
-    displayCurrency,
-    convertAmount,
-  ]);
+  }, [financeSummary]);
 
   // Get client details for sheet
   const selectedClientDetails = useMemo(() => {

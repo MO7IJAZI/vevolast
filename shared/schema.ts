@@ -1,5 +1,5 @@
 
-import { mysqlTable, text, int, boolean, timestamp, varchar, json } from "drizzle-orm/mysql-core";
+import { mysqlTable, text, int, boolean, timestamp, varchar, json, datetime } from "drizzle-orm/mysql-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { sql, type InferSelectModel, type InferInsertModel } from "drizzle-orm";
@@ -45,6 +45,7 @@ export const clientUsers = mysqlTable("client_users", {
   email: varchar("email", { length: 255 }).notNull().unique(),
   password: varchar("password", { length: 255 }).notNull(),
   clientId: varchar("client_id", { length: 36 }).notNull(),
+  serviceId: varchar("service_id", { length: 36 }),
   clientName: varchar("client_name", { length: 255 }).notNull(),
   clientNameEn: varchar("client_name_en", { length: 255 }),
   isActive: boolean("is_active").notNull().default(true),
@@ -75,7 +76,7 @@ export const invitations = mysqlTable("invitations", {
   nameEn: varchar("name_en", { length: 255 }),
   department: varchar("department", { length: 100 }),
   employeeId: varchar("employee_id", { length: 100 }),
-  usedAt: timestamp("used_at"),
+  usedAt: datetime("used_at"),
   invitedBy: varchar("invited_by", { length: 36 }),
   createdAt: timestamp("created_at").defaultNow(),
 });
@@ -105,8 +106,8 @@ export const passwordResets = mysqlTable("password_resets", {
   id: varchar("id", { length: 36 }).primaryKey(),
   email: varchar("email", { length: 255 }).notNull(),
   token: varchar("token", { length: 255 }).notNull().unique(),
-  expiresAt: timestamp("expires_at").notNull(),
-  usedAt: timestamp("used_at"),
+  expiresAt: datetime("expires_at").notNull(),
+  usedAt: datetime("used_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -307,6 +308,7 @@ export const invoices = mysqlTable("invoices", {
   id: varchar("id", { length: 36 }).primaryKey(),
   invoiceNumber: varchar("invoice_number", { length: 50 }).notNull(),
   clientId: varchar("client_id", { length: 36 }).notNull(),
+  serviceId: varchar("service_id", { length: 36 }),
   clientName: varchar("client_name", { length: 255 }).notNull(),
   amount: int("amount").notNull(),
   currency: varchar("currency", { length: 10 }).notNull(),
@@ -314,6 +316,7 @@ export const invoices = mysqlTable("invoices", {
   issueDate: varchar("issue_date", { length: 20 }).notNull(),
   dueDate: varchar("due_date", { length: 20 }).notNull(),
   paidDate: varchar("paid_date", { length: 20 }),
+  paymentMethod: varchar("payment_method", { length: 50 }),
   items: json("items").notNull().default(sql`('[]')`),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
@@ -611,8 +614,8 @@ export const workSessions = mysqlTable("work_sessions", {
   id: varchar("id", { length: 36 }).primaryKey(),
   employeeId: varchar("employee_id", { length: 36 }).notNull(),
   date: varchar("date", { length: 20 }).notNull(),
-  startTime: timestamp("start_time"),
-  endTime: timestamp("end_time"),
+  startTime: datetime("start_time"),
+  endTime: datetime("end_time"),
   status: varchar("status", { length: 50 }).notNull().default("not_started"),
   segments: json("segments").default(sql`('[]')`),
   totalDuration: int("total_duration").notNull().default(0),
