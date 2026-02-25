@@ -24,6 +24,7 @@ import { useData } from "@/contexts/DataContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { safeJsonParse } from "@/utils/safeJson";
+import { SessionDetailsSheet } from "@/components/work-tracking/session-details-sheet";
 import {
   Calendar as CalendarIcon,
   Search,
@@ -119,6 +120,9 @@ export default function WorkSessionsPage() {
 
   // Determine if user can see all employees
   const canViewAll = isAdmin || user?.role === "manager";
+
+  // State for session details sheet
+  const [selectedSession, setSelectedSession] = useState<WorkSession | null>(null);
 
   // Fetch data
   const { data: workSessions, isLoading, refetch } = useQuery<WorkSession[]>({
@@ -453,7 +457,7 @@ export default function WorkSessionsPage() {
                       <SessionTimer initialMs={totalMs} status={session.status} segments={segments} />
                     </TableCell>
                     <TableCell className="text-end">
-                      <Button variant="ghost" size="sm">
+                      <Button variant="ghost" size="sm" onClick={() => setSelectedSession(session)}>
                         <FileText className="h-4 w-4" />
                       </Button>
                     </TableCell>
@@ -464,6 +468,12 @@ export default function WorkSessionsPage() {
           </TableBody>
         </Table>
       </div>
+
+      <SessionDetailsSheet 
+        open={!!selectedSession} 
+        onOpenChange={(open) => !open && setSelectedSession(null)} 
+        session={selectedSession} 
+      />
     </div>
   );
 }
