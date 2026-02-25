@@ -2,6 +2,7 @@
 import fs from "fs";
 import path from "path";
 import { Readable } from "stream";
+import { safeJsonParse } from "../../utils/safeJson";
 
 export class LocalFile {
   public name: string;
@@ -29,7 +30,7 @@ export class LocalFile {
       let metadata = {};
       try {
         const metaContent = await fs.promises.readFile(this.metaPath, "utf-8");
-        metadata = JSON.parse(metaContent);
+        metadata = safeJsonParse(metaContent, {});
       } catch {
         // No metadata file, that's fine
       }

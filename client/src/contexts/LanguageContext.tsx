@@ -24,6 +24,7 @@ const translations: Record<Language, Record<string, string>> = {
     "nav.settings": "الإعدادات",
     "nav.sales": "المبيعات",
     "nav.workTracking": "متابعة العمل",
+    "nav.workSessions": "جلسات العمل",
     
     // Goals Page
     "goals.title": "الأهداف",
@@ -107,6 +108,7 @@ const translations: Record<Language, Record<string, string>> = {
     "nav.settings": "Settings",
     "nav.sales": "Sales",
     "nav.workTracking": "Work Tracking",
+    "nav.workSessions": "Work Sessions",
     
     // Goals Page
     "goals.title": "Goals",

@@ -258,11 +258,28 @@ export class DatabaseStorage implements IStorage {
       }
 
       if (filters.clientId) {
-        conditions.push(and(eq(transactions.relatedId, filters.clientId), eq(transactions.relatedType, "invoice")));
+        // Filter by direct client association on the transaction
+        conditions.push(eq(transactions.clientId, filters.clientId));
       }
 
       if (filters.employeeId) {
-        conditions.push(and(eq(transactions.relatedId, filters.employeeId), eq(transactions.relatedType, "salary")));
+        // Transactions linked to employee payrolls are stored with:
+        // relatedType = "payroll_payment" and relatedId = payroll_payments.id
+        // Resolve payroll payment IDs for the employee and filter by those
+        const payrollRows = await db
+          .select({ id: payrollPayments.id })
+          .from(payrollPayments)
+          .where(eq(payrollPayments.employeeId, filters.employeeId));
+        const payrollIds = payrollRows.map(r => r.id);
+        if (payrollIds.length === 0) {
+          return [];
+        }
+        conditions.push(
+          and(
+            eq(transactions.relatedType, "payroll_payment"),
+            inArray(transactions.relatedId, payrollIds)
+          )
+        );
       }
 
       const query = db.select().from(transactions).orderBy(desc(transactions.createdAt));

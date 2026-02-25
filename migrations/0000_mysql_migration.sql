@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS `invoices` (
   `id` varchar(255) PRIMARY KEY,
   `invoice_number` varchar(50) NOT NULL,
   `client_id` varchar(255) NOT NULL,
+  `service_id` varchar(255),
   `client_name` varchar(255) NOT NULL,
   `amount` int NOT NULL,
   `currency` varchar(10) NOT NULL,

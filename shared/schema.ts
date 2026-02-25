@@ -92,12 +92,13 @@ export type Invitation = InferSelectModel<typeof invitations>;
 export const PermissionEnum = z.enum([
   "view_clients", "edit_clients", "archive_clients",
   "view_leads", "edit_leads",
-  "create_packages", "edit_packages",
+  "view_packages", "create_packages", "edit_packages",
   "view_invoices", "create_invoices", "edit_invoices",
   "view_goals", "edit_goals",
   "view_finance", "edit_finance",
   "view_employees", "edit_employees",
-  "assign_employees", "edit_work_tracking"
+  "assign_employees", "edit_work_tracking",
+  "view_reports"
 ]);
 
 export type Permission = z.infer<typeof PermissionEnum>;
@@ -258,7 +259,7 @@ export const mainPackages = mysqlTable("main_packages", {
   icon: varchar("icon", { length: 50 }),
   description: text("description"),
   descriptionEn: text("description_en"),
-  order: int("order").notNull().default(0),
+  order: int("order_num").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
@@ -290,7 +291,7 @@ export const subPackages = mysqlTable("sub_packages", {
   features: text("features"),
   featuresEn: text("features_en"),
   isActive: boolean("is_active").notNull().default(true),
-  order: int("order").notNull().default(0),
+  order: int("order_num").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
 });

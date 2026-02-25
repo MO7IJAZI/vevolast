@@ -1,13 +1,13 @@
-import { build as esbuild } from "esbuild";
-import { build as viteBuild } from "vite";
+import "dotenv/config";
+import { existsSync } from "fs";
 import { rm, readFile } from "fs/promises";
 import path from "path";
+import { pathToFileURL } from "url";
 
-// Import db for executing raw SQL
+import type { BuildOptions } from "esbuild";
+
 import { db } from "../server/db";
 
-// server deps to bundle to reduce openat(2) syscalls
-// which helps cold start times and prevents missing dependency errors on Hostinger
 const allowlist = [
   "@google/generative-ai",
   "axios",
@@ -34,9 +34,17 @@ const allowlist = [
   "zod",
   "zod-validation-error",
   "dotenv",
-  // "bcrypt", // Native module - must be external
   "mysql2",
 ];
+
+const wasmPath = path.join(process.cwd(), "node_modules", "esbuild-wasm", "esbuild.wasm");
+const gesbuildPath = path.join(
+  process.cwd(),
+  "node_modules",
+  "@esbuild",
+  "win32-x64",
+  "gesbuild.exe"
+);
 
 async function runMigrations() {
   console.log("⏳ Running MySQL migrations...");
@@ -45,9 +53,12 @@ async function runMigrations() {
     const sql = await readFile(migrationPath, "utf-8");
     
     const statements = sql
+      .replace(/--.*$/gm, "") // Remove comments
       .split(";")
       .map((s) => s.trim())
-      .filter((s) => s.length > 0 && !s.startsWith("--"));
+      .filter((s) => s.length > 0);
+
+    console.log("Statements count:", statements.length);
 
     for (const statement of statements) {
       try {
@@ -55,6 +66,8 @@ async function runMigrations() {
       } catch (error: any) {
         if (error.code === "ER_TABLE_EXISTS_ERROR") {
           console.log("  - Table already exists, skipping...");
+        } else {
+          console.error("  - Migration error:", error);
         }
       }
     }
@@ -69,11 +82,16 @@ async function runMigrations() {
 async function buildAll() {
   await rm("dist", { recursive: true, force: true });
 
+  if (process.platform === "win32" && existsSync(gesbuildPath)) {
+    process.env.ESBUILD_BINARY_PATH = gesbuildPath;
+  }
+
   // Run migrations before build
   console.log("Running database migrations...");
   await runMigrations();
 
   console.log("building client...");
+  const { build: viteBuild } = await import("vite");
   await viteBuild();
 
   console.log("building server...");
@@ -84,7 +102,7 @@ async function buildAll() {
   ];
   const externals = allDeps.filter((dep) => !allowlist.includes(dep));
 
-  await esbuild({
+  const serverBuildOptions: BuildOptions = {
     entryPoints: ["server/index.ts"],
     platform: "node",
     bundle: true,
@@ -99,7 +117,20 @@ async function buildAll() {
     minify: true,
     external: externals,
     logLevel: "info",
-  });
+  };
+
+  try {
+    const { build: esbuild } = await import("esbuild");
+    await esbuild(serverBuildOptions);
+  } catch (error) {
+    if (process.platform !== "win32" || !existsSync(wasmPath)) {
+      throw error;
+    }
+    const { initialize, build: wasmBuild } = await import("esbuild-wasm");
+    const wasmUrl = pathToFileURL(wasmPath).toString();
+    await initialize({ wasmURL: wasmUrl });
+    await wasmBuild(serverBuildOptions);
+  }
 }
 
 buildAll().catch((err) => {

@@ -13,6 +13,7 @@ import {
   ChevronRight,
   TrendingUp,
   ClipboardList,
+  Clock,
 } from "lucide-react";
 import {
   Sidebar,
@@ -38,13 +39,14 @@ const menuItems = [
   { icon: Target, path: "/goals", labelKey: "nav.goals", permissions: ["view_goals"] },
   { icon: Users, path: "/clients", labelKey: "nav.clients", permissions: ["view_clients", "view_leads"] },
   { icon: ClipboardList, path: "/work-tracking", labelKey: "nav.workTracking", permissions: ["view_clients", "edit_work_tracking"] },
-  { icon: Package, path: "/packages", labelKey: "nav.packages", permissions: ["create_packages", "edit_packages"] },
+  { icon: Clock, path: "/work-sessions", labelKey: "nav.workSessions", permissions: ["view_employees", "edit_work_tracking"] },
+  { icon: Package, path: "/packages", labelKey: "nav.packages", permissions: ["view_packages", "create_packages", "edit_packages"] },
   { icon: FileText, path: "/invoices", labelKey: "nav.invoices", permissions: ["view_invoices", "create_invoices", "edit_invoices"] },
   { icon: UserCircle, path: "/employees", labelKey: "nav.employees", permissions: ["view_employees"] },
   { icon: TrendingUp, path: "/sales", labelKey: "nav.sales", permissions: ["view_clients", "edit_clients"] },
   { icon: Calendar, path: "/calendar", labelKey: "nav.calendar", permissions: [] },
   { icon: DollarSign, path: "/finance", labelKey: "nav.finance", permissions: ["view_finance"] },
-  { icon: Settings, path: "/settings", labelKey: "nav.settings", permissions: [] },
+  { icon: Settings, path: "/settings", labelKey: "nav.settings", permissions: ["edit_finance"] },
 ];
 
 export function AppSidebar() {

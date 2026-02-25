@@ -1,10 +1,30 @@
 import "dotenv/config";
 import { db } from "./db";
 import { 
-  users, leads, clients, clientServices, 
-  mainPackages, subPackages, invoices, 
-  employees, employeeSalaries, goals, 
-  transactions, payrollPayments, CalendarEvent
+  users,
+  leads,
+  clients,
+  clientServices,
+  mainPackages,
+  subPackages,
+  invoices,
+  employees,
+  employeeSalaries,
+  goals,
+  transactions,
+  clientPayments,
+  payrollPayments,
+  calendarEvents,
+  workSessions,
+  notifications,
+  systemSettings,
+  exchangeRates,
+  serviceDeliverables,
+  workActivityLogs,
+  serviceReports,
+  clientUsers,
+  invitations,
+  passwordResets
 } from "../shared/schema.js";
 import { hashPassword, roleDefaultPermissions } from "./auth";
 import { eq, sql } from "drizzle-orm";
@@ -766,10 +786,353 @@ const initialInvoices = [
   },
 ];
 
+const initialGoals = [
+  {
+    id: "goal-1",
+    name: "إيرادات الشهر - يناير 2026",
+    type: "financial",
+    month: 1,
+    year: 2026,
+    target: 200000,
+    current: 120000,
+    currency: "TRY",
+    icon: "DollarSign",
+    status: "in_progress",
+    responsiblePerson: "Ahmed Mohamed",
+    country: "turkey",
+  },
+  {
+    id: "goal-2",
+    name: "عملاء جدد - يناير 2026",
+    type: "clients",
+    month: 1,
+    year: 2026,
+    target: 15,
+    current: 6,
+    status: "in_progress",
+    responsiblePerson: "Sara Ahmed",
+    country: "turkey",
+  },
+  {
+    id: "goal-3",
+    name: "عملاء محتملون مؤهلون - يناير 2026",
+    type: "leads",
+    month: 1,
+    year: 2026,
+    target: 40,
+    current: 18,
+    status: "in_progress",
+    responsiblePerson: "Sales Team",
+    country: "turkey",
+  },
+];
+
+const initialClientPayments = [
+  {
+    id: "cp-1",
+    clientId: "client-1",
+    serviceId: "svc-1",
+    amount: 3500,
+    currency: "USD",
+    paymentDate: "2026-01-10",
+    month: 1,
+    year: 2026,
+    paymentMethod: "bank_transfer",
+    notes: "Payment for invoice INV-2026-001",
+  },
+  {
+    id: "cp-2",
+    clientId: "client-2",
+    serviceId: "svc-4",
+    amount: 4500,
+    currency: "TRY",
+    paymentDate: "2026-01-18",
+    month: 1,
+    year: 2026,
+    paymentMethod: "card",
+    notes: "Payment for branding project",
+  },
+];
+
+const initialPayrollPayments = [
+  {
+    id: "pay-1",
+    employeeId: "emp-1",
+    amount: 8000,
+    currency: "TRY",
+    paymentDate: "2026-01-31",
+    period: "2026-01",
+    status: "paid",
+    notes: "Monthly salary January 2026",
+  },
+  {
+    id: "pay-2",
+    employeeId: "emp-3",
+    amount: 12000,
+    currency: "TRY",
+    paymentDate: "2026-01-31",
+    period: "2026-01",
+    status: "paid",
+    notes: "Monthly salary January 2026",
+  },
+];
+
+const initialTransactions = [
+  {
+    id: "txn-1",
+    description: "Client payment INV-2026-001",
+    amount: 3500,
+    currency: "USD",
+    type: "income",
+    category: "other",
+    date: "2026-01-10",
+    relatedId: "cp-1",
+    relatedType: "client_payment",
+    status: "completed",
+    notes: "Social media management January",
+    clientId: "client-1",
+    serviceId: "svc-1",
+  },
+  {
+    id: "txn-2",
+    description: "Client payment branding project",
+    amount: 4500,
+    currency: "TRY",
+    type: "income",
+    category: "other",
+    date: "2026-01-18",
+    relatedId: "cp-2",
+    relatedType: "client_payment",
+    status: "completed",
+    notes: "Branding and logo design",
+    clientId: "client-2",
+    serviceId: "svc-4",
+  },
+  {
+    id: "txn-3",
+    description: "Salary payment Ahmed Mohamed",
+    amount: 8000,
+    currency: "TRY",
+    type: "expense",
+    category: "salaries",
+    date: "2026-01-31",
+    relatedId: "pay-1",
+    relatedType: "payroll_payment",
+    status: "completed",
+    notes: "Monthly salary",
+  },
+  {
+    id: "txn-4",
+    description: "Salary payment Mohamed Khaled",
+    amount: 12000,
+    currency: "TRY",
+    type: "expense",
+    category: "salaries",
+    date: "2026-01-31",
+    relatedId: "pay-2",
+    relatedType: "payroll_payment",
+    status: "completed",
+    notes: "Monthly salary",
+  },
+];
+
+const initialWorkSessions = [
+  {
+    id: "ws-1",
+    employeeId: "emp-3",
+    date: "2026-01-15",
+    startTime: new Date("2026-01-15T09:00:00"),
+    endTime: new Date("2026-01-15T17:00:00"),
+    status: "ended",
+    segments: [
+      {
+        type: "work",
+        startAt: "2026-01-15T09:00:00",
+        endAt: "2026-01-15T12:00:00",
+      },
+      {
+        type: "break",
+        startAt: "2026-01-15T12:00:00",
+        endAt: "2026-01-15T13:00:00",
+        breakType: "lunch",
+      },
+      {
+        type: "work",
+        startAt: "2026-01-15T13:00:00",
+        endAt: "2026-01-15T17:00:00",
+      },
+    ],
+    totalDuration: 7 * 60,
+    breakDuration: 60,
+    notes: "Full workday on client projects",
+  },
+  {
+    id: "ws-2",
+    employeeId: "emp-1",
+    date: "2026-01-16",
+    startTime: new Date("2026-01-16T10:00:00"),
+    endTime: new Date("2026-01-16T15:00:00"),
+    status: "ended",
+    segments: [
+      {
+        type: "work",
+        startAt: "2026-01-16T10:00:00",
+        endAt: "2026-01-16T12:30:00",
+      },
+      {
+        type: "break",
+        startAt: "2026-01-16T12:30:00",
+        endAt: "2026-01-16T13:00:00",
+        breakType: "short",
+      },
+      {
+        type: "work",
+        startAt: "2026-01-16T13:00:00",
+        endAt: "2026-01-16T15:00:00",
+      },
+    ],
+    totalDuration: 4 * 60,
+    breakDuration: 30,
+    notes: "Sales calls and follow-ups",
+  },
+];
+
+const initialCalendarEvents = [
+  {
+    id: "evt-1",
+    source: "manual",
+    eventType: "manual",
+    titleAr: "اجتماع مع شركة الإبداع الرقمي",
+    titleEn: "Meeting with Digital Creativity",
+    date: "2026-01-20",
+    time: "11:00",
+    status: "upcoming",
+    priority: "high",
+    clientId: "client-1",
+    serviceId: "svc-1",
+    employeeId: "emp-1",
+    notes: "Review January performance and upsell new services",
+    reminderDays: "1,3",
+  },
+  {
+    id: "evt-2",
+    source: "manual",
+    eventType: "payroll",
+    titleAr: "صرف رواتب يناير",
+    titleEn: "January payroll",
+    date: "2026-01-31",
+    time: "18:00",
+    status: "upcoming",
+    priority: "medium",
+    notes: "Process salaries for all employees",
+    reminderDays: "1",
+  },
+  {
+    id: "evt-3",
+    source: "manual",
+    eventType: "client_payment",
+    titleAr: "دفعة جديدة من مطعم الشرق",
+    titleEn: "New payment from Al-Sharq Restaurant",
+    date: "2026-01-18",
+    time: "14:00",
+    status: "done",
+    priority: "medium",
+    clientId: "client-2",
+    serviceId: "svc-4",
+    notes: "Confirm payment and update invoice status",
+    reminderDays: "0",
+  },
+];
+
+const initialSystemSettings = {
+  id: "current",
+  settings: {
+    companyName: "Vevoline",
+    dateFormat: "DD/MM/YYYY",
+    timezone: "Asia/Istanbul",
+    defaultGoalCurrency: "TRY",
+    defaultInvoiceCurrency: "TRY",
+    enableMultiCurrency: true,
+    defaultTaxRate: 18,
+    enableTaxPerInvoice: true,
+    currencySymbolPosition: "before",
+    enabledGoalTypes: ["financial", "clients", "leads", "projects", "performance", "custom"],
+    defaultGoalStatus: "in_progress",
+    allowManualProgress: true,
+    enableGoalCarryOver: false,
+    clientStatuses: ["active", "on_hold", "expired"],
+    defaultClientStatus: "active",
+    enableExpirationReminders: true,
+    reminderDays: 7,
+    allowMultiplePackages: true,
+    invoiceFormat: "INV-0001",
+    defaultDueDays: 14,
+    allowEditPaidInvoices: false,
+    invoiceFooter: "",
+    enablePdfExport: true,
+    roles: ["admin", "manager", "staff"],
+    defaultRole: "staff",
+    allowSelfEdit: true,
+    notifyExpiringClients: true,
+    notifyOverdueInvoices: true,
+    notifyGoalsBehind: true,
+    notificationDelivery: "in_app",
+    sidebarMode: "expanded",
+    enableAnimations: true,
+    density: "comfortable",
+    confirmDeletes: true,
+  },
+};
+
+const initialExchangeRates = [
+  {
+    id: "rates-2026-01-15",
+    base: "USD",
+    date: "2026-01-15",
+    rates: JSON.stringify({
+      TRY: 30.5,
+      EUR: 0.92,
+      SAR: 3.75,
+      AED: 3.67,
+      EGP: 50.0,
+    }),
+  },
+];
+
 // ============ SEED FUNCTION ============
 
 async function seed() {
   console.log("Starting seed process...");
+
+  console.log("Clearing existing data...");
+  try {
+    await db.delete(workActivityLogs);
+    await db.delete(serviceDeliverables);
+    await db.delete(serviceReports);
+    await db.delete(transactions);
+    await db.delete(clientPayments);
+    await db.delete(calendarEvents);
+    await db.delete(invoices);
+    await db.delete(clientServices);
+    await db.delete(workSessions);
+    await db.delete(payrollPayments);
+    await db.delete(employeeSalaries);
+    await db.delete(goals);
+    await db.delete(notifications);
+    await db.delete(clients);
+    await db.delete(leads);
+    await db.delete(employees);
+    await db.delete(clientUsers);
+    await db.delete(invitations);
+    await db.delete(passwordResets);
+    await db.delete(systemSettings);
+    await db.delete(exchangeRates);
+    await db.delete(subPackages);
+    await db.delete(mainPackages);
+    await db.delete(users);
+  } catch (error) {
+    console.error("Error clearing existing data:", error);
+  }
 
   // 1. Seed Main Packages (Categories)
   console.log("Seeding Main Packages...");
@@ -907,6 +1270,104 @@ async function seed() {
     }
   } catch (error) {
     console.error("Error seeding invoices:", error);
+  }
+
+  console.log("Seeding Goals...");
+  try {
+    const existingGoals = await db.select().from(goals);
+    if (existingGoals.length === 0) {
+      await db.insert(goals).values(initialGoals);
+      console.log(`Seeded ${initialGoals.length} goals.`);
+    } else {
+      console.log("Goals already exist, skipping.");
+    }
+  } catch (error) {
+    console.error("Error seeding goals:", error);
+  }
+
+  console.log("Seeding Client Payments and Transactions...");
+  try {
+    const existingPayments = await db.select().from(clientPayments);
+    if (existingPayments.length === 0) {
+      await db.insert(clientPayments).values(initialClientPayments);
+      console.log(`Seeded ${initialClientPayments.length} client payments.`);
+    } else {
+      console.log("Client payments already exist, skipping.");
+    }
+    const existingTransactions = await db.select().from(transactions);
+    if (existingTransactions.length === 0) {
+      await db.insert(transactions).values(initialTransactions);
+      console.log(`Seeded ${initialTransactions.length} transactions.`);
+    } else {
+      console.log("Transactions already exist, skipping.");
+    }
+  } catch (error) {
+    console.error("Error seeding client payments or transactions:", error);
+  }
+
+  console.log("Seeding Payroll Payments...");
+  try {
+    const existingPayroll = await db.select().from(payrollPayments);
+    if (existingPayroll.length === 0) {
+      await db.insert(payrollPayments).values(initialPayrollPayments);
+      console.log(`Seeded ${initialPayrollPayments.length} payroll payments.`);
+    } else {
+      console.log("Payroll payments already exist, skipping.");
+    }
+  } catch (error) {
+    console.error("Error seeding payroll payments:", error);
+  }
+
+  console.log("Seeding Work Sessions...");
+  try {
+    const existingSessions = await db.select().from(workSessions);
+    if (existingSessions.length === 0) {
+      await db.insert(workSessions).values(initialWorkSessions);
+      console.log(`Seeded ${initialWorkSessions.length} work sessions.`);
+    } else {
+      console.log("Work sessions already exist, skipping.");
+    }
+  } catch (error) {
+    console.error("Error seeding work sessions:", error);
+  }
+
+  console.log("Seeding Calendar Events...");
+  try {
+    const existingEvents = await db.select().from(calendarEvents);
+    if (existingEvents.length === 0) {
+      await db.insert(calendarEvents).values(initialCalendarEvents);
+      console.log(`Seeded ${initialCalendarEvents.length} calendar events.`);
+    } else {
+      console.log("Calendar events already exist, skipping.");
+    }
+  } catch (error) {
+    console.error("Error seeding calendar events:", error);
+  }
+
+  console.log("Seeding System Settings...");
+  try {
+    const existingSettings = await db.select().from(systemSettings);
+    if (existingSettings.length === 0) {
+      await db.insert(systemSettings).values(initialSystemSettings);
+      console.log("Seeded system settings.");
+    } else {
+      console.log("System settings already exist, skipping.");
+    }
+  } catch (error) {
+    console.error("Error seeding system settings:", error);
+  }
+
+  console.log("Seeding Exchange Rates...");
+  try {
+    const existingRates = await db.select().from(exchangeRates);
+    if (existingRates.length === 0) {
+      await db.insert(exchangeRates).values(initialExchangeRates);
+      console.log(`Seeded ${initialExchangeRates.length} exchange rates.`);
+    } else {
+      console.log("Exchange rates already exist, skipping.");
+    }
+  } catch (error) {
+    console.error("Error seeding exchange rates:", error);
   }
 
   console.log("Seed process completed.");

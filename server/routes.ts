@@ -26,7 +26,8 @@ import {
 import { z } from "zod";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage/routes";
 import { getExchangeRates, convertCurrency, refreshExchangeRates } from "./exchangeRates";
-import { requireAdmin, requirePermission } from "./auth";
+import { requireAdmin, requirePermission, requireAuth } from "./auth";
+import { safeJsonParse } from "./utils/safeJson";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -40,7 +41,7 @@ export async function registerRoutes(
   // Goals API
   
   // Get all goals
-  app.get("/api/goals", async (req, res) => {
+  app.get("/api/goals", requirePermission("view_goals"), async (req, res) => {
     try {
       const goals = await storage.getGoals();
       res.json(goals);
@@ -51,7 +52,7 @@ export async function registerRoutes(
   });
 
   // Get single goal
-  app.get("/api/goals/:id", async (req, res) => {
+  app.get("/api/goals/:id", requirePermission("view_goals"), async (req, res) => {
     try {
       const goal = await storage.getGoal(req.params.id);
       if (!goal) {
@@ -65,7 +66,7 @@ export async function registerRoutes(
   });
 
   // Create goal
-  app.post("/api/goals", async (req, res) => {
+  app.post("/api/goals", requirePermission("edit_goals"), async (req, res) => {
     try {
       const validated = goalFormSchema.parse(req.body);
       const goal = await storage.createGoal(validated as any);
@@ -112,7 +113,7 @@ export async function registerRoutes(
   });
 
   // Clients API
-  app.get("/api/clients", async (req, res) => {
+  app.get("/api/clients", requirePermission("view_clients", "view_leads"), async (req, res) => {
     try {
       const clients = await storage.getClients();
       res.json(clients);
@@ -122,7 +123,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/clients/:id", async (req, res) => {
+  app.get("/api/clients/:id", requirePermission("view_clients", "view_leads"), async (req, res) => {
     try {
       const client = await storage.getClient(req.params.id);
       if (!client) {
@@ -149,7 +150,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/clients-with-service", async (req, res) => {
+  app.post("/api/clients-with-service", requirePermission("edit_clients"), async (req, res) => {
     try {
       const { client, service } = req.body;
       const validatedClient = insertClientSchema.parse(client);
@@ -167,7 +168,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/clients/:id", async (req, res) => {
+  app.patch("/api/clients/:id", requirePermission("edit_clients"), async (req, res) => {
     try {
       const validated = insertClientSchema.partial().parse(req.body);
       const client = await storage.updateClient(req.params.id, validated);
@@ -184,7 +185,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/clients/:id/convert", async (req, res) => {
+  app.post("/api/clients/:id/convert", requirePermission("edit_clients"), async (req, res) => {
     try {
       const lead = await storage.convertClientToLead(req.params.id);
       res.status(201).json(lead);
@@ -293,7 +294,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/main-packages", requireAdmin, async (req, res) => {
+  app.post("/api/main-packages", requirePermission("create_packages"), async (req, res) => {
     try {
       const validated = insertMainPackageSchema.parse(req.body);
       const pkg = await storage.createMainPackage(validated);
@@ -307,7 +308,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/main-packages/:id", requireAdmin, async (req, res) => {
+  app.patch("/api/main-packages/:id", requirePermission("edit_packages"), async (req, res) => {
     try {
       const validated = insertMainPackageSchema.partial().parse(req.body);
       const pkg = await storage.updateMainPackage(req.params.id as string, validated);
@@ -324,7 +325,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/main-packages/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/main-packages/:id", requirePermission("edit_packages"), async (req, res) => {
     try {
       const deleted = await storage.deleteMainPackage(req.params.id as string);
       if (!deleted) {
@@ -341,7 +342,13 @@ export async function registerRoutes(
     try {
       const { mainPackageId } = req.query;
       const packages = await storage.getSubPackages(mainPackageId as string);
-      if (req.session?.userRole !== "admin") {
+      
+      // If user has view_packages permission (or is admin), show full details including price
+      // Otherwise (e.g. client users without specific permission), hide price
+      const hasPermission = req.session?.userRole === "admin" || 
+                           (req.session?.userPermissions as string[])?.includes("view_packages");
+
+      if (!hasPermission) {
         const safePackages = packages.map(pkg => {
           const { price, currency, ...safePkg } = pkg;
           return safePkg;
@@ -588,7 +595,7 @@ export async function registerRoutes(
   });
 
   // Leads API
-  app.get("/api/leads", async (req, res) => {
+  app.get("/api/leads", requirePermission("view_leads"), async (req, res) => {
     try {
       const leads = await storage.getLeads();
       res.json(leads);
@@ -598,7 +605,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leads/:id", async (req, res) => {
+  app.get("/api/leads/:id", requirePermission("view_leads"), async (req, res) => {
     try {
       const lead = await storage.getLead(req.params.id);
       if (!lead) {
@@ -611,7 +618,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/leads", async (req, res) => {
+  app.post("/api/leads", requirePermission("edit_leads"), async (req, res) => {
     try {
       const validated = insertLeadSchema.parse(req.body);
       const lead = await storage.createLead(validated);
@@ -625,7 +632,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/leads/:id", async (req, res) => {
+  app.patch("/api/leads/:id", requirePermission("edit_leads"), async (req, res) => {
     try {
       const validated = insertLeadSchema.partial().parse(req.body);
       const lead = await storage.updateLead(req.params.id, validated);
@@ -642,7 +649,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/leads/:id", async (req, res) => {
+  app.delete("/api/leads/:id", requirePermission("edit_leads"), async (req, res) => {
     try {
       const deleted = await storage.deleteLead(req.params.id);
       if (!deleted) {
@@ -655,7 +662,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/leads/:id/convert", async (req, res) => {
+  app.post("/api/leads/:id/convert", requirePermission("edit_leads"), async (req, res) => {
     try {
       const client = await storage.convertLeadToClient(req.params.id);
       res.status(201).json(client);
@@ -672,7 +679,7 @@ export async function registerRoutes(
   });
 
   // System Settings API
-  app.get("/api/system-settings", async (req, res) => {
+  app.get("/api/system-settings", requireAdmin, async (req, res) => {
     try {
       const settings = await storage.getSystemSettings();
       res.json(settings?.settings || {});
@@ -682,7 +689,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/system-settings", async (req, res) => {
+  app.post("/api/system-settings", requireAdmin, async (req, res) => {
     try {
       const validated = insertSystemSettingsSchema.partial().parse(req.body);
       const settings = await storage.updateSystemSettings(validated);
@@ -743,7 +750,7 @@ export async function registerRoutes(
   });
 
   // Get all transactions (with optional filters)
-  app.get("/api/transactions", requireAdmin, async (req, res) => {
+  app.get("/api/transactions", requirePermission("view_finance"), async (req, res) => {
     try {
       const { type, month, year, clientId, employeeId } = req.query;
       const transactions = await storage.getTransactions({
@@ -761,7 +768,7 @@ export async function registerRoutes(
   });
 
   // Create transaction
-  app.post("/api/transactions", requireAdmin, async (req, res) => {
+  app.post("/api/transactions", requirePermission("edit_finance"), async (req, res) => {
     try {
       const validated = insertTransactionSchema.parse(req.body);
       const transaction = await storage.createTransaction(validated);
@@ -776,7 +783,7 @@ export async function registerRoutes(
   });
 
   // Update transaction
-  app.patch("/api/transactions/:id", requireAdmin, async (req, res) => {
+  app.patch("/api/transactions/:id", requirePermission("edit_finance"), async (req, res) => {
     try {
       const validated = insertTransactionSchema.partial().parse(req.body);
       const updated = await storage.updateTransaction(req.params.id as string, validated);
@@ -794,7 +801,7 @@ export async function registerRoutes(
   });
 
   // Delete transaction
-  app.delete("/api/transactions/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/transactions/:id", requirePermission("edit_finance"), async (req, res) => {
     try {
       const deleted = await storage.deleteTransaction(req.params.id as string);
       if (!deleted) {
@@ -808,7 +815,7 @@ export async function registerRoutes(
   });
 
   // Get client payments
-  app.get("/api/client-payments", requireAdmin, async (req, res) => {
+  app.get("/api/client-payments", requirePermission("view_finance"), async (req, res) => {
     try {
       const { clientId, month, year } = req.query;
       const payments = await storage.getClientPayments({
@@ -824,7 +831,7 @@ export async function registerRoutes(
   });
 
   // Create client payment (also creates income transaction)
-  app.post("/api/client-payments", requireAdmin, async (req, res) => {
+  app.post("/api/client-payments", requirePermission("create_invoices"), async (req, res) => {
     try {
       const validated = insertClientPaymentSchema.parse(req.body);
       const payment = await storage.createClientPayment(validated);
@@ -856,7 +863,7 @@ export async function registerRoutes(
   });
 
   // Update client payment
-  app.patch("/api/client-payments/:id", requireAdmin, async (req, res) => {
+  app.patch("/api/client-payments/:id", requirePermission("edit_finance"), async (req, res) => {
     try {
       const validated = insertClientPaymentSchema.partial().parse(req.body);
       const updated = await storage.updateClientPayment(req.params.id as string, validated);
@@ -874,7 +881,7 @@ export async function registerRoutes(
   });
 
   // Delete client payment
-  app.delete("/api/client-payments/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/client-payments/:id", requirePermission("edit_finance"), async (req, res) => {
     try {
       const deleted = await storage.deleteClientPayment(req.params.id as string);
       if (!deleted) {
@@ -888,7 +895,7 @@ export async function registerRoutes(
   });
 
   // Get payroll payments
-  app.get("/api/payroll-payments", requireAdmin, async (req, res) => {
+  app.get("/api/payroll-payments", requirePermission("view_finance"), async (req, res) => {
     try {
       const { employeeId, month, year } = req.query;
       const payments = await storage.getPayrollPayments({
@@ -904,7 +911,7 @@ export async function registerRoutes(
   });
 
   // Create payroll payment (also creates expense transaction)
-  app.post("/api/payroll-payments", requireAdmin, async (req, res) => {
+  app.post("/api/payroll-payments", requirePermission("edit_finance"), async (req, res) => {
     try {
       const validated = insertPayrollPaymentSchema.parse(req.body);
       const payment = await storage.createPayrollPayment(validated);
@@ -919,7 +926,7 @@ export async function registerRoutes(
   });
 
   // Update payroll payment
-  app.patch("/api/payroll-payments/:id", requireAdmin, async (req, res) => {
+  app.patch("/api/payroll-payments/:id", requirePermission("edit_finance"), async (req, res) => {
     try {
       const validated = insertPayrollPaymentSchema.partial().parse(req.body);
       const updated = await storage.updatePayrollPayment(req.params.id as string, validated);
@@ -937,7 +944,7 @@ export async function registerRoutes(
   });
 
   // Delete payroll payment
-  app.delete("/api/payroll-payments/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/payroll-payments/:id", requirePermission("edit_finance"), async (req, res) => {
     try {
       const deleted = await storage.deletePayrollPayment(req.params.id as string);
       if (!deleted) {
@@ -951,7 +958,7 @@ export async function registerRoutes(
   });
 
   // Get employee salaries
-  app.get("/api/employee-salaries", requireAdmin, async (req, res) => {
+  app.get("/api/employee-salaries", requirePermission("edit_employees"), async (req, res) => {
     try {
       const salaries = await storage.getEmployeeSalaries();
       res.json(salaries);
@@ -962,7 +969,7 @@ export async function registerRoutes(
   });
 
   // Get or create employee salary
-  app.get("/api/employee-salaries/:employeeId", requireAdmin, async (req, res) => {
+  app.get("/api/employee-salaries/:employeeId", requirePermission("edit_employees"), async (req, res) => {
     try {
       const employeeId = Array.isArray(req.params.employeeId) ? req.params.employeeId[0] : req.params.employeeId;
       if (!employeeId) {
@@ -977,7 +984,7 @@ export async function registerRoutes(
   });
 
   // Update/create employee salary
-  app.put("/api/employee-salaries/:employeeId", requireAdmin, async (req, res) => {
+  app.put("/api/employee-salaries/:employeeId", requirePermission("edit_employees"), async (req, res) => {
     try {
       const employeeId = Array.isArray(req.params.employeeId) ? req.params.employeeId[0] : req.params.employeeId;
       if (!employeeId) {
@@ -1193,17 +1200,68 @@ export async function registerRoutes(
   // =====================
 
   // Get work sessions with filters
-  app.get("/api/work-sessions", async (req, res) => {
+  app.get("/api/work-sessions", requireAuth, async (req, res) => {
     try {
       const { employeeId, date, startDate, endDate, status } = req.query;
+      
+      // Access Control:
+      // If user is NOT admin/manager, they can ONLY see their own sessions.
+      // We force the employeeId filter to be their own ID.
+      let targetEmployeeId = employeeId as string;
+      
+      // Cast req to any to access user property added by passport/session
+      const user = (req as any).user;
+      const isAdminOrManager = user?.role === 'admin' || user?.role === 'manager';
+      
+      if (!isAdminOrManager && user) {
+        // Force filter to current user
+        targetEmployeeId = user.id;
+      }
+      
       const sessions = await storage.getWorkSessions({
-        employeeId: employeeId as string,
+        employeeId: targetEmployeeId,
         date: date as string,
         startDate: startDate as string,
         endDate: endDate as string,
         status: status as string,
       });
-      res.json(sessions);
+      
+      // Enrich sessions with employee details if possible
+      // This is a workaround since we don't have a direct join in storage.getWorkSessions
+      const enrichedSessions = await Promise.all(sessions.map(async (session) => {
+        let employee = await storage.getEmployee(session.employeeId);
+        
+        // If employee not found in employees table (maybe it's an admin user), check users table
+        // We create a mock employee object for display purposes
+        if (!employee) {
+          const user = await storage.getUser(session.employeeId);
+          if (user) {
+            employee = {
+              id: user.id,
+              name: user.name,
+              nameEn: user.nameEn,
+              email: user.email,
+              role: user.role,
+              department: user.department || "admin",
+              jobTitle: "admin",
+              salaryType: "monthly",
+              salaryAmount: 0,
+              salaryCurrency: "USD",
+              isActive: user.isActive,
+              startDate: user.createdAt?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0],
+              createdAt: user.createdAt,
+              updatedAt: user.updatedAt,
+            } as any;
+          }
+        }
+        
+        return {
+          ...session,
+          employee: employee
+        };
+      }));
+      
+      res.json(enrichedSessions);
     } catch (error) {
       console.error("Error fetching work sessions:", error);
       res.status(500).json({ error: "Failed to fetch work sessions" });
@@ -1279,7 +1337,12 @@ export async function registerRoutes(
       }
 
       const now = new Date().toISOString();
-      const segments = (session.segments as any[]) || [];
+      let segments: any[] = [];
+      if (session.segments) {
+        segments = Array.isArray(session.segments) 
+          ? session.segments 
+          : safeJsonParse(session.segments as unknown as string, []);
+      }
       
       // End current work segment
       if (segments.length > 0 && segments[segments.length - 1].type === "work" && !segments[segments.length - 1].endAt) {
@@ -1326,7 +1389,12 @@ export async function registerRoutes(
       }
 
       const now = new Date().toISOString();
-      const segments = (session.segments as any[]) || [];
+      let segments: any[] = [];
+      if (session.segments) {
+        segments = Array.isArray(session.segments) 
+          ? session.segments 
+          : safeJsonParse(session.segments as unknown as string, []);
+      }
       
       // End current break segment
       if (segments.length > 0 && segments[segments.length - 1].type === "break" && !segments[segments.length - 1].endAt) {
@@ -1365,7 +1433,12 @@ export async function registerRoutes(
       }
 
       const now = new Date().toISOString();
-      const segments = (session.segments as any[]) || [];
+      let segments: any[] = [];
+      if (session.segments) {
+        segments = Array.isArray(session.segments) 
+          ? session.segments 
+          : safeJsonParse(session.segments as unknown as string, []);
+      }
       
       // End current segment (work or break)
       if (segments.length > 0 && !segments[segments.length - 1].endAt) {
@@ -1402,7 +1475,12 @@ export async function registerRoutes(
       }
 
       const now = new Date().toISOString();
-      const segments = (session.segments as any[]) || [];
+      let segments: any[] = [];
+      if (session.segments) {
+        segments = Array.isArray(session.segments) 
+          ? session.segments 
+          : safeJsonParse(session.segments as unknown as string, []);
+      }
       
       // Start new work segment
       segments.push({ type: "work", startAt: now });

@@ -1,4 +1,5 @@
 {
+  "files": ["client/src/types/vendor.d.ts"],
   "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
   "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
   "compilerOptions": {

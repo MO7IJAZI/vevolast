@@ -56,6 +56,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { ar, enUS } from "date-fns/locale";
 import { useEffect } from "react";
+import { safeJsonParse } from "@/utils/safeJson";
 
 export default function InvoicesPage() {
   const { isAdmin } = useAuth();
@@ -231,7 +232,9 @@ export default function InvoicesPage() {
       issueDate: invoice.issueDate,
       dueDate: invoice.dueDate,
       notes: invoice.notes || "",
-      items: Array.isArray(invoice.items) ? invoice.items : []
+      items: typeof invoice.items === 'string' 
+        ? safeJsonParse(invoice.items, []) 
+        : (Array.isArray(invoice.items) ? invoice.items : [])
     });
     setIsModalOpen(true);
   };

@@ -152,7 +152,7 @@ export function AddGoalModal({
     }
   }, [editingGoal, defaultMonth, defaultYear, form, open]);
 
-  const watchedType = form.watch("type");
+  const watchedType = form.watch("type") as GoalType;
   const typeConfig = goalTypeConfigs[watchedType];
   const selectedIcon = form.watch("icon");
 

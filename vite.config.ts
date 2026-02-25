@@ -10,11 +10,44 @@ export default defineConfig({
     react(),
   ],
   resolve: {
-    alias: {
-      "@": path.resolve(projectRoot, "client", "src"),
-      "@shared": path.resolve(projectRoot, "shared"),
-      "@assets": path.resolve(projectRoot, "client", "src", "assets"),
-    },
+    alias: [
+      {
+        find: "@hookform/resolvers/zod",
+        replacement: path.resolve(
+          projectRoot,
+          "node_modules",
+          "@hookform",
+          "resolvers",
+          "zod",
+          "dist",
+          "zod.module.js"
+        ),
+      },
+      {
+        find: "@hookform/resolvers",
+        replacement: path.resolve(
+          projectRoot,
+          "node_modules",
+          "@hookform",
+          "resolvers",
+          "dist",
+          "resolvers.module.js"
+        ),
+      },
+      {
+        find: "react-hook-form",
+        replacement: path.resolve(
+          projectRoot,
+          "node_modules",
+          "react-hook-form",
+          "dist",
+          "index.cjs.js"
+        ),
+      },
+      { find: "@assets", replacement: path.resolve(projectRoot, "client", "src", "assets") },
+      { find: "@shared", replacement: path.resolve(projectRoot, "shared") },
+      { find: "@", replacement: path.resolve(projectRoot, "client", "src") },
+    ],
   },
   root: path.resolve(projectRoot, "client"),
   build: {

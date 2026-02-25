@@ -56,6 +56,7 @@ import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Skeleton } from "@/components/ui/skeleton";
+import { safeJsonParse } from "../utils/safeJson";
 import {
   Table,
   TableBody,
@@ -156,12 +157,12 @@ export default function SettingsPage() {
   });
 
   // Fetch settings from API
-  const { data: serverSettings, isLoading } = useQuery({
+  const { data: serverSettings, isLoading } = useQuery<Record<string, any>>({
     queryKey: ["/api/system-settings"],
   });
 
   // Fetch work sessions for time tracking audit
-  const { data: workSessions, isLoading: sessionsLoading } = useQuery<WorkSession[]>({
+  const { data: workSessions, isLoading: sessionsLoading, refetch: refetchWorkSessions } = useQuery<WorkSession[]>({
     queryKey: ["/api/work-sessions"],
   });
 
@@ -203,8 +204,22 @@ export default function SettingsPage() {
 
   // Sync settings when server data changes
   useEffect(() => {
-    if (serverSettings && Object.keys(serverSettings).length > 0) {
-      setSettings(prev => ({ ...prev, ...serverSettings }));
+    if (serverSettings) {
+      let parsedSettings = {};
+      
+      // Check if we have the nested settings object (from DB) or flat settings
+      if (serverSettings.settings) {
+        parsedSettings = typeof serverSettings.settings === 'string' 
+          ? safeJsonParse(serverSettings.settings, {}) 
+          : serverSettings.settings;
+      } else if (Object.keys(serverSettings).length > 0) {
+        // Fallback for flat structure if API changed
+        parsedSettings = serverSettings;
+      }
+
+      if (Object.keys(parsedSettings).length > 0) {
+        setSettings(prev => ({ ...prev, ...parsedSettings }));
+      }
     }
   }, [serverSettings]);
 
@@ -865,40 +880,43 @@ export default function SettingsPage() {
 
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="space-y-1">
-            <h3 className="text-lg font-medium">Recent Work Sessions</h3>
-            <p className="text-sm text-muted-foreground">Review and audit employee time tracking</p>
-          </div>
-          <Button variant="outline" size="sm" className="gap-2">
+        <div className="flex justify-end">
+          <Button variant="outline" size="sm" onClick={() => refetchWorkSessions()} className="gap-2">
             <RefreshCw className="h-4 w-4" />
-            Refresh
+            {language === "ar" ? "تحديث" : "Refresh"}
           </Button>
         </div>
 
-        <div className="rounded-md border overflow-hidden">
+        <div className="rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Employee</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Total Hours</TableHead>
-                <TableHead className="text-end">Actions</TableHead>
+                <TableHead>{language === "ar" ? "الموظف" : "Employee"}</TableHead>
+                <TableHead>{language === "ar" ? "التاريخ" : "Date"}</TableHead>
+                <TableHead>{language === "ar" ? "الحالة" : "Status"}</TableHead>
+                <TableHead>{language === "ar" ? "إجمالي الساعات" : "Total Hours"}</TableHead>
+                <TableHead className="text-end">{language === "ar" ? "إجراءات" : "Actions"}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {workSessions?.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
-                    No work sessions found
+                    {language === "ar" ? "لا توجد جلسات عمل" : "No work sessions found"}
                   </TableCell>
                 </TableRow>
               ) : (
-                workSessions?.slice(0, 5).map((session) => {
-                  const employee = employees.find(e => e.id === session.employeeId);
-                  const totals = JSON.parse(session.totals || "{}");
-                  const totalHours = (totals.totalWorkingMs || 0) / (1000 * 60 * 60);
+                workSessions?.slice(0, 5).map((session: any) => {
+                  const employee = session.employee || employees.find(e => e.id === session.employeeId);
+
+                  let totals: any = {};
+                  totals = typeof session.totals === 'string' 
+                    ? safeJsonParse(session.totals, {}) 
+                    : (session.totals || {});
+
+                  const totalMs = (totals.totalWorkingMs || 0);
+                  const hours = Math.floor(totalMs / (1000 * 60 * 60));
+                  const minutes = Math.floor((totalMs % (1000 * 60 * 60)) / (1000 * 60));
 
                   return (
                     <TableRow key={session.id}>
@@ -921,9 +939,18 @@ export default function SettingsPage() {
                           {session.status}
                         </Badge>
                       </TableCell>
-                      <TableCell>{totalHours.toFixed(2)}h</TableCell>
+                      <TableCell>{hours}h {minutes}m</TableCell>
                       <TableCell className="text-end">
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-8 w-8"
+                          onClick={() => {
+                            // Navigate to work tracking page with filters pre-set would be ideal
+                            // For now, we'll just go to the work-tracking page
+                            window.location.href = `/work-sessions?employeeId=${session.employeeId}&date=${session.date}`;
+                          }}
+                        >
                           <FileText className="h-4 w-4" />
                         </Button>
                       </TableCell>
@@ -935,8 +962,12 @@ export default function SettingsPage() {
           </Table>
         </div>
 
-        <Button variant="ghost" className="px-0 h-auto text-primary hover:bg-transparent underline">
-          View all work sessions in detailed report →
+        <Button 
+          variant="ghost" 
+          className="px-0 h-auto text-primary hover:bg-transparent underline"
+          onClick={() => window.location.href = "/work-sessions"}
+        >
+          {language === "ar" ? "عرض تقرير مفصل لجميع جلسات العمل →" : "View all work sessions in detailed report →"}
         </Button>
       </div>
     );

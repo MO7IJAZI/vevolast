@@ -23,6 +23,7 @@ import FinancePage from "@/pages/finance";
 import SettingsPage from "@/pages/settings";
 import SalesPage from "@/pages/sales";
 import WorkTrackingPage from "@/pages/work-tracking";
+import WorkSessionsPage from "@/pages/work-sessions";
 import LoginPage from "@/pages/login";
 import SetPasswordPage from "@/pages/set-password";
 import ForgotPasswordPage from "@/pages/forgot-password";
@@ -154,7 +155,11 @@ function ProtectedRoutes() {
           <FinancePage />
         </PermissionGuard>
       </Route>
-      <Route path="/settings" component={SettingsPage} />
+      <Route path="/settings">
+        <PermissionGuard permissions={["edit_finance"]}>
+          <SettingsPage />
+        </PermissionGuard>
+      </Route>
       <Route path="/sales">
         <PermissionGuard permissions={["view_clients", "edit_clients"]}>
           <SalesPage />
@@ -163,6 +168,11 @@ function ProtectedRoutes() {
       <Route path="/work-tracking">
         <PermissionGuard permissions={["view_clients", "edit_work_tracking"]}>
           <WorkTrackingPage />
+        </PermissionGuard>
+      </Route>
+      <Route path="/work-sessions">
+        <PermissionGuard permissions={["view_employees", "edit_work_tracking"]}>
+          <WorkSessionsPage />
         </PermissionGuard>
       </Route>
       <Route path="/" component={Dashboard} />

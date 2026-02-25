@@ -73,6 +73,7 @@ import { EmployeeChips } from "@/components/employee-chip";
 import { EmployeeProfileDrawer } from "@/components/employee-profile-drawer";
 import { EmployeeMultiSelect } from "@/components/employee-multi-select";
 import { ClientWorkProgress } from "@/components/work-tracking/client-work-progress";
+import { safeJsonParse } from "../utils/safeJson";
 
 // Lead Pipeline Stages
 interface LeadStageInfo {
@@ -2009,8 +2010,14 @@ export default function ClientsPage() {
                 const countryInfo = Array.isArray(countries) ? countries.find(c => c.code === client.country) : undefined;
                 
                 // Get employee IDs from both new arrays and legacy fields for backward compatibility
-                const salesOwnerIds = client.salesOwners || (client.salesOwnerId ? [client.salesOwnerId] : []);
-                const assignedStaffIds = client.assignedStaff || (client.assignedManagerId ? [client.assignedManagerId] : []);
+                const salesOwners = typeof client.salesOwners === 'string' 
+                  ? safeJsonParse(client.salesOwners, []) 
+                  : (Array.isArray(client.salesOwners) ? client.salesOwners : []);
+                const assignedStaff = typeof client.assignedStaff === 'string' 
+                  ? safeJsonParse(client.assignedStaff, []) 
+                  : (Array.isArray(client.assignedStaff) ? client.assignedStaff : []);
+                const salesOwnerIds = salesOwners || (client.salesOwnerId ? [client.salesOwnerId] : []);
+                const assignedStaffIds = assignedStaff || (client.assignedManagerId ? [client.assignedManagerId] : []);
                 
                 return (
                   <Card key={client.id} data-testid={`card-client-${client.id}`}>
@@ -2402,8 +2409,14 @@ export default function ClientsPage() {
               {filteredCompletedClients.map((client) => {
                 const countryInfo = countries.find(c => c.code === client.country);
                 // Get employee IDs from both new arrays and legacy fields for backward compatibility
-                const salesOwnerIds = client.salesOwners || (client.salesOwnerId ? [client.salesOwnerId] : []);
-                const assignedStaffIds = client.assignedStaff || (client.assignedManagerId ? [client.assignedManagerId] : []);
+                const salesOwners = typeof client.salesOwners === 'string' 
+                  ? safeJsonParse(client.salesOwners, []) 
+                  : (Array.isArray(client.salesOwners) ? client.salesOwners : []);
+                const assignedStaff = typeof client.assignedStaff === 'string' 
+                  ? safeJsonParse(client.assignedStaff, []) 
+                  : (Array.isArray(client.assignedStaff) ? client.assignedStaff : []);
+                const salesOwnerIds = salesOwners || (client.salesOwnerId ? [client.salesOwnerId] : []);
+                const assignedStaffIds = assignedStaff || (client.assignedManagerId ? [client.assignedManagerId] : []);
                 const totalValue = (Array.isArray(client.services) ? client.services : []).reduce((sum, s) => sum + (s.price || 0), 0);
                 
                 return (

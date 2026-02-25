@@ -73,6 +73,7 @@ import { useData, type MainPackage, type SubPackage, type Deliverable, type Plat
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { safeJsonParse } from "@/utils/safeJson";
 
 type BillingType = "one_time" | "monthly" | "quarterly" | "yearly";
 
@@ -203,7 +204,7 @@ const categoryColors: Record<string, { bg: string; text: string; border: string 
 
 export default function PackagesPage() {
   const { language } = useLanguage();
-  const { isAdmin } = useAuth();
+  const { isAdmin, hasPermission } = useAuth();
   const { formatCurrency, convertAmount, currency: displayCurrency } = useCurrency();
   const {
     mainPackages,
@@ -455,8 +456,12 @@ export default function PackagesPage() {
         descriptionEn: pkg.descriptionEn || "",
         duration: pkg.duration || "",
         durationEn: pkg.durationEn || "",
-        deliverables: pkg.deliverables || [],
-        platforms: pkg.platforms || [],
+        deliverables: typeof pkg.deliverables === 'string' 
+          ? safeJsonParse(pkg.deliverables, []) 
+          : (pkg.deliverables || []),
+        platforms: typeof pkg.platforms === 'string' 
+          ? safeJsonParse(pkg.platforms, []) 
+          : (pkg.platforms || []),
         features: pkg.features || "",
         featuresEn: pkg.featuresEn || "",
         isActive: pkg.isActive,
@@ -1105,7 +1110,7 @@ export default function PackagesPage() {
           <h1 className="text-2xl font-bold">{t.title}</h1>
           <p className="text-muted-foreground">{t.subtitle}</p>
         </div>
-        {isAdmin && (
+        {hasPermission("create_packages") && (
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => openMainPackageModal()} data-testid="button-add-category">
               <Plus className="h-4 w-4 me-2" />
@@ -1202,7 +1207,7 @@ export default function PackagesPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {isAdmin && (
+                          {hasPermission("edit_packages") && (
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button
@@ -1248,7 +1253,7 @@ export default function PackagesPage() {
                       {categorySubPackages.length === 0 ? (
                         <div className="text-center py-8 border-t">
                           <p className="text-muted-foreground mb-4">{t.noPackagesInCategory}</p>
-                          {isAdmin && (
+                          {hasPermission("create_packages") && (
                             <Button
                               variant="outline"
                               onClick={() => openSubPackageModal(mainPkg.id)}
@@ -1300,7 +1305,7 @@ export default function PackagesPage() {
                                         </Badge>
                                       )}
                                     </div>
-                                    {isAdmin && (
+                                    {hasPermission("edit_packages") && (
                                       <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
                                           <Button variant="ghost" size="icon" data-testid={`button-menu-package-${subPkg.id}`}>
@@ -1327,7 +1332,7 @@ export default function PackagesPage() {
                                 <CardContent className="pt-0">
                                   <div className="flex items-center justify-between mb-3">
                                     <span className="text-xl font-bold">
-                                      {isAdmin ? formatCurrency(
+                                      {hasPermission("view_packages") ? formatCurrency(
                                         convertAmount(subPkg.price, subPkg.currency as any, displayCurrency),
                                         displayCurrency
                                       ) : "---"}

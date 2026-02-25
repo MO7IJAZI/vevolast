@@ -103,7 +103,7 @@ export default function EmployeesPage() {
   const { language } = useLanguage();
   const { formatCurrency, convertAmount, currency: displayCurrency } = useCurrency();
   const { toast } = useToast();
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, hasPermission } = useAuth();
   const { employees, clients, leads, invoices, addEmployee, updateEmployee, deleteEmployee } = useData();
   const [, navigate] = useLocation();
   const [isSendingInvite, setIsSendingInvite] = useState(false);
@@ -193,15 +193,37 @@ export default function EmployeesPage() {
     { key: "archive_clients", labelAr: "أرشفة العملاء", labelEn: "Archive Clients" },
     { key: "view_employees", labelAr: "عرض الموظفين", labelEn: "View Employees" },
     { key: "edit_employees", labelAr: "تعديل الموظفين", labelEn: "Edit Employees" },
+    { key: "view_packages", labelAr: "عرض الباقات", labelEn: "View Packages" },
+    { key: "view_reports", labelAr: "عرض التقارير", labelEn: "View Reports" },
   ];
 
   // Role default permissions - aligned with server/auth.ts roleDefaultPermissions
   const roleDefaultPerms: Record<string, string[]> = {
     admin: permissionsList.map(p => p.key),
-    sales: ["view_clients", "edit_clients", "view_leads", "edit_leads", "view_goals", "assign_employees"],
-    execution: ["view_clients", "view_goals", "edit_work_tracking"],
-    finance: ["view_clients", "view_goals"],
-    viewer: ["view_clients", "view_leads", "view_goals"],
+    sales: [
+      "view_clients", "edit_clients", 
+      "view_leads", "edit_leads",
+      "view_goals", 
+      "view_packages"
+    ],
+    execution: [
+      "view_clients", 
+      "view_goals", 
+      "edit_work_tracking",
+      "view_packages"
+    ],
+    finance: [
+      "view_clients", 
+      "view_goals", 
+      "view_finance", 
+      "view_invoices", "create_invoices", "edit_invoices"
+    ],
+    viewer: [
+      "view_clients", 
+      "view_leads", 
+      "view_goals",
+      "view_packages"
+    ],
   };
 
   const t = useMemo(() => ({
@@ -1300,10 +1322,12 @@ export default function EmployeesPage() {
           <h1 className="text-2xl font-bold">{t.title}</h1>
           <p className="text-muted-foreground">{t.subtitle}</p>
         </div>
+        {hasPermission("edit_employees") && (
         <Button onClick={() => openModal()} data-testid="button-add-employee">
           <Plus className="h-4 w-4 me-2" />
           {t.addEmployee}
         </Button>
+        )}
       </div>
 
       {/* Search and filters */}
@@ -1383,6 +1407,8 @@ export default function EmployeesPage() {
                         <UserCircle className="h-4 w-4 me-2" />
                         {t.viewProfile}
                       </DropdownMenuItem>
+                      {hasPermission("edit_employees") && (
+                      <>
                       <DropdownMenuItem onClick={(e) => { e.stopPropagation(); openModal(employee); }}>
                         <Pencil className="h-4 w-4 me-2" />
                         {t.edit}
@@ -1394,6 +1420,8 @@ export default function EmployeesPage() {
                         <Trash2 className="h-4 w-4 me-2" />
                         {t.delete}
                       </DropdownMenuItem>
+                      </>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>

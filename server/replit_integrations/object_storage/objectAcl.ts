@@ -1,5 +1,6 @@
 import { File } from "@google-cloud/storage";
 import { LocalFile } from "./localFile";
+import { safeJsonParse } from "../../utils/safeJson";
 
 const ACL_POLICY_METADATA_KEY = "custom:aclPolicy";
 
@@ -129,7 +130,7 @@ export async function getObjectAclPolicy(
   if (!aclPolicy) {
     return null;
   }
-  return JSON.parse(aclPolicy as string);
+  return safeJsonParse(aclPolicy as string, null);
 }
 
 // Checks if the user can access the object.

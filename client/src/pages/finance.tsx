@@ -106,11 +106,11 @@ import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 
 export default function FinancePage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, hasPermission } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  if (!isAdmin) {
+  if (!hasPermission("view_finance")) {
     setLocation("/");
     return null;
   }
@@ -1335,10 +1335,12 @@ export default function FinancePage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
               <CardTitle>{t.revenues}</CardTitle>
+              {hasPermission("create_invoices") && (
               <Button size="sm" onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income-tab">
                 <Plus className="h-4 w-4 me-1" />
                 {t.addIncome}
               </Button>
+              )}
             </CardHeader>
             <CardContent>
               {incomeTransactions.length === 0 && clientPaymentsData.length === 0 ? (
@@ -1369,6 +1371,7 @@ export default function FinancePage() {
                         </TableCell>
                         <TableCell>{payment.paymentDate}</TableCell>
                         <TableCell>
+                          {hasPermission("edit_finance") && (
                           <div className="flex gap-1">
                             <Button
                               size="icon"
@@ -1387,6 +1390,7 @@ export default function FinancePage() {
                               <Trash2 className="h-4 w-4 text-red-500" />
                             </Button>
                           </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1403,6 +1407,7 @@ export default function FinancePage() {
                       </TableCell>
                         <TableCell>{tx.date}</TableCell>
                         <TableCell>
+                          {hasPermission("edit_finance") && (
                           <div className="flex gap-1">
                             <Button
                               size="icon"
@@ -1421,6 +1426,7 @@ export default function FinancePage() {
                               <Trash2 className="h-4 w-4 text-red-500" />
                             </Button>
                           </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1436,10 +1442,12 @@ export default function FinancePage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
               <CardTitle>{t.expenses}</CardTitle>
+              {hasPermission("edit_finance") && (
               <Button size="sm" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense-tab">
                 <Plus className="h-4 w-4 me-1" />
                 {t.addExpense}
               </Button>
+              )}
             </CardHeader>
             <CardContent>
               {expenseTransactions.length === 0 ? (
@@ -1473,6 +1481,7 @@ export default function FinancePage() {
                       </TableCell>
                         <TableCell>{tx.date}</TableCell>
                         <TableCell>
+                          {hasPermission("edit_finance") && (
                           <div className="flex gap-1">
                             <Button
                               size="icon"
@@ -1500,6 +1509,7 @@ export default function FinancePage() {
                               <Trash2 className="h-4 w-4 text-red-500" />
                             </Button>
                           </div>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

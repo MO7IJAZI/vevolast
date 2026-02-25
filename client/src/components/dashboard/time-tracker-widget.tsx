@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
+import { safeJsonParse } from "../../utils/safeJson";
 
 interface WorkSession {
   id: string;
@@ -178,39 +179,67 @@ export function TimeTrackerWidget() {
   });
 
   useEffect(() => {
-    if (!session || session.status === "not_started" || session.status === "ended") {
-      setElapsedSeconds(0);
-      return;
-    }
-
+    // Helper function to calculate elapsed time
     const calculateElapsed = () => {
+      if (!session) return 0;
+      
+      // If session hasn't started or is ended, use the stored total duration
+      if (session.status === "not_started") return 0;
+      if (session.status === "ended") return session.totalDuration || 0;
+
       try {
-        const segments = session.segments || [];
+        const segments = typeof session.segments === 'string' 
+          ? safeJsonParse(session.segments, []) 
+          : (Array.isArray(session.segments) ? session.segments : []);
+        
         let workSeconds = 0;
         const now = Date.now();
 
+        // If on break, we should just return the total duration calculated so far
+        // The server typically updates totalDuration when status changes, but let's be safe and recalc from segments
+        if (session.status === "on_break") {
+           // Calculate up to the last completed work segment
+           for (const segment of segments) {
+             if (segment.type === "work" && segment.endAt) {
+               const start = new Date(segment.startAt).getTime();
+               const end = new Date(segment.endAt).getTime();
+               workSeconds += Math.floor((end - start) / 1000);
+             }
+           }
+           // Fallback to session.totalDuration if segments calc seems off or empty
+           return workSeconds > 0 ? workSeconds : (session.totalDuration || 0);
+        }
+
+        // If working, calculate total including the current running segment
         for (const segment of segments) {
           if (segment.type === "work") {
             const start = new Date(segment.startAt).getTime();
+            // If endAt is missing, it means this is the active segment -> use now
             const end = segment.endAt ? new Date(segment.endAt).getTime() : now;
             workSeconds += Math.floor((end - start) / 1000);
           }
         }
         return workSeconds;
-      } catch {
-        return 0;
+      } catch (e) {
+        console.error("Error calculating elapsed time", e);
+        return session.totalDuration || 0;
       }
     };
 
+    // Initial calculation
     setElapsedSeconds(calculateElapsed());
 
-    const interval = setInterval(() => {
-      if (session.status === "working") {
+    // Set up interval to tick every second ONLY if working
+    let interval: NodeJS.Timeout;
+    if (session?.status === "working") {
+      interval = setInterval(() => {
         setElapsedSeconds(calculateElapsed());
-      }
-    }, 1000);
+      }, 1000);
+    }
 
-    return () => clearInterval(interval);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [session]);
 
   const formatTime = (seconds: number): string => {

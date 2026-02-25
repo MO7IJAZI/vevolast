@@ -2,6 +2,7 @@ import { db } from "./db";
 import { exchangeRates } from "../shared/schema.js";
 import { desc } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { safeJsonParse } from "./utils/safeJson";
 
 // Supported currencies
 export const SUPPORTED_CURRENCIES = ["USD", "TRY", "SAR", "EGP", "EUR", "AED"] as const;
@@ -77,7 +78,7 @@ async function getCachedRates(): Promise<ExchangeRatesData | null> {
       return {
         base: record.base,
         date: record.date,
-        rates: JSON.parse(record.rates),
+        rates: safeJsonParse(record.rates, FALLBACK_RATES),
         fetchedAt: record.fetchedAt || new Date(),
       };
     }

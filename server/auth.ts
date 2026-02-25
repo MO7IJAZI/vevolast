@@ -26,24 +26,39 @@ declare module "express-session" {
 // All available permissions - aligned with PermissionEnum in shared/schema.ts
 export const roleDefaultPermissions: Record<string, string[]> = {
   admin: [
-    "view_clients", "edit_clients", "view_leads", "edit_leads",
-    "create_packages", "edit_packages", "view_invoices", "create_invoices", "edit_invoices",
-    "view_goals", "edit_goals", "view_finance", "edit_finance",
-    "assign_employees", "edit_work_tracking", "archive_clients",
+    "view_clients", "edit_clients", "archive_clients", 
+    "view_leads", "edit_leads",
+    "create_packages", "edit_packages", 
+    "view_invoices", "create_invoices", "edit_invoices",
+    "view_goals", "edit_goals", 
+    "view_finance", "edit_finance",
+    "assign_employees", "edit_work_tracking", 
     "view_employees", "edit_employees",
+    "view_reports"
   ],
   sales: [
-    "view_clients", "edit_clients", "view_leads", "edit_leads",
-    "view_goals", "assign_employees",
+    "view_clients", "edit_clients", 
+    "view_leads", "edit_leads",
+    "view_goals", 
+    "view_packages"
   ],
   execution: [
-    "view_clients", "view_goals", "edit_work_tracking",
+    "view_clients", 
+    "view_goals", 
+    "edit_work_tracking",
+    "view_packages"
   ],
   finance: [
-    "view_clients", "view_goals",
+    "view_clients", 
+    "view_goals", 
+    "view_finance", 
+    "view_invoices", "create_invoices", "edit_invoices"
   ],
   viewer: [
-    "view_clients", "view_leads", "view_goals",
+    "view_clients", 
+    "view_leads", 
+    "view_goals",
+    "view_packages"
   ],
 };
 
@@ -425,9 +440,10 @@ export function registerAuthRoutes(app: Express) {
       }
       
       const hashedPassword = await hashPassword(password);
+      const userId = crypto.randomUUID();
       
       await db.insert(users).values({
-        id: crypto.randomUUID(),
+        id: userId,
         email: invitation.email,
         password: hashedPassword,
         name: invitation.name || "",
@@ -443,6 +459,18 @@ export function registerAuthRoutes(app: Express) {
       
       await db.update(invitations).set({ usedAt: new Date() }).where(eq(invitations.id, invitation.id));
       
+      // Auto-login after password set
+      const permissions = Array.isArray(invitation.permissions) && invitation.permissions.length > 0
+        ? invitation.permissions
+        : roleDefaultPermissions[invitation.role] || [];
+
+      req.session.userId = userId;
+      req.session.userEmail = invitation.email;
+      req.session.userRole = invitation.role;
+      req.session.userName = invitation.name || "";
+      req.session.userPermissions = permissions;
+      req.session.isClientUser = false;
+
       res.json({ message: "Password set successfully. You can now login." });
     } catch (error) {
       console.error("Set password error:", error);

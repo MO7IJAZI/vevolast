@@ -14,9 +14,10 @@ async function runMySQLMigration() {
     // Split by statement but we need to handle MySQL statements properly
     // We'll execute them one by one
     const statements = sql
+      .replace(/--.*$/gm, "") // Remove comments
       .split(";")
       .map((s) => s.trim())
-      .filter((s) => s.length > 0 && !s.startsWith("--"));
+      .filter((s) => s.length > 0);
 
     for (const statement of statements) {
       try {
