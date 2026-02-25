@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useAuth } from "@/contexts/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useData, type ServiceItem, type ConfirmedClient, type ServiceDeliverable } from "@/contexts/DataContext";
@@ -90,6 +91,7 @@ interface ClientWithServices {
 export default function WorkTrackingPage() {
   const queryClient = useQueryClient();
   const { language } = useLanguage();
+  const { user, isAdmin } = useAuth();
   const { clients, employees, mainPackages, subPackages, updateService, updateClient, reactivateClient } = useData();
   const [searchQuery, setSearchQuery] = useState("");
   const [packageFilter, setPackageFilter] = useState<string>("all");
@@ -531,6 +533,15 @@ export default function WorkTrackingPage() {
     const daysInfo = getDaysInfo(service);
     const progress = getServiceProgress(service);
     const deliverables = getDeliverables(service);
+    
+    // Check permissions
+    // Admin can edit everything
+    // Assigned user can edit deliverables
+    // Mark Completed is Admin only
+    
+    const isAssigned = user && service.serviceAssignees && service.serviceAssignees.includes(user.id);
+    const canEditDeliverables = isAdmin || isAssigned;
+    const canMarkCompleted = isAdmin;
 
     return (
       <div 
@@ -606,7 +617,7 @@ export default function WorkTrackingPage() {
                         variant={deliverable.completed > 0 ? "default" : "outline"}
                         className="h-6 w-6 p-0"
                         onClick={() => handleToggleDeliverable(clientId, service.id, deliverable.key)}
-                        disabled={isCompleted}
+                        disabled={isCompleted || !canEditDeliverables}
                         data-testid={`toggle-${service.id}-${deliverable.key}`}
                       >
                         <Check className="h-3 w-3" />
@@ -625,7 +636,7 @@ export default function WorkTrackingPage() {
                             parseInt(e.target.value) || 0
                           )}
                           className="h-6 w-12 text-center text-sm p-1"
-                          disabled={isCompleted}
+                          disabled={isCompleted || !canEditDeliverables}
                           data-testid={`input-${service.id}-${deliverable.key}`}
                         />
                         <span className="text-muted-foreground">/{deliverable.target}</span>
@@ -654,27 +665,31 @@ export default function WorkTrackingPage() {
               <CheckCircle2 className="h-4 w-4" />
               <span>{content.completedOn}: {service.completedDate}</span>
             </div>
+            {isAdmin && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleReactivateService(clientId, service.id)}
+                data-testid={`reactivate-${service.id}`}
+              >
+                <Clock className="h-4 w-4 me-2" />
+                {content.reactivate}
+              </Button>
+            )}
+          </div>
+        ) : (
+          canMarkCompleted && (
             <Button
               size="sm"
               variant="outline"
-              onClick={() => handleReactivateService(clientId, service.id)}
-              data-testid={`reactivate-${service.id}`}
+              className="w-full"
+              onClick={() => handleMarkCompleted(clientId, service.id)}
+              data-testid={`mark-completed-${service.id}`}
             >
-              <Clock className="h-4 w-4 me-2" />
-              {content.reactivate}
+              <CheckCircle2 className="h-4 w-4 me-2" />
+              {content.markCompleted}
             </Button>
-          </div>
-        ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            className="w-full"
-            onClick={() => handleMarkCompleted(clientId, service.id)}
-            data-testid={`mark-completed-${service.id}`}
-          >
-            <CheckCircle2 className="h-4 w-4 me-2" />
-            {content.markCompleted}
-          </Button>
+          )
         )}
       </div>
     );
