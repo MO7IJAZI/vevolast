@@ -549,7 +549,7 @@ async function seed() {
         await db.insert(clients).values({ ...clientFields, id: clientId });
 
         if (services && services.length > 0) {
-          const serviceInserts = services.map(s => ({
+          const serviceInserts = services.map((s: { id: any; mainPackageId: any; serviceName: any; serviceNameEn: any; startDate: any; dueDate: any; price: any; currency: any; status: any; serviceAssignees: any; }) => ({
             id: s.id,
             clientId,
             mainPackageId: s.mainPackageId,
