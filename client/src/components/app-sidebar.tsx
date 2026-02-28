@@ -14,6 +14,7 @@ import {
   TrendingUp,
   ClipboardList,
   Clock,
+  Shield, // Import Shield
 } from "lucide-react";
 import {
   Sidebar,
@@ -36,23 +37,24 @@ import logoPath from "@assets/logo.png";
 
 const menuItems = [
   { icon: LayoutDashboard, path: "/", labelKey: "nav.dashboard", permissions: [] },
-  { icon: Target, path: "/goals", labelKey: "nav.goals", permissions: ["view_goals"] },
-  { icon: Users, path: "/clients", labelKey: "nav.clients", permissions: ["view_clients", "view_leads"] },
-  { icon: ClipboardList, path: "/work-tracking", labelKey: "nav.workTracking", permissions: ["view_clients", "edit_work_tracking"] },
-  { icon: Clock, path: "/work-sessions", labelKey: "nav.workSessions", permissions: ["view_employees", "edit_work_tracking"] },
-  { icon: Package, path: "/packages", labelKey: "nav.packages", permissions: ["view_packages", "create_packages", "edit_packages"] },
-  { icon: FileText, path: "/invoices", labelKey: "nav.invoices", permissions: ["view_invoices", "create_invoices", "edit_invoices"] },
-  { icon: UserCircle, path: "/employees", labelKey: "nav.employees", permissions: ["view_employees"] },
-  { icon: TrendingUp, path: "/sales", labelKey: "nav.sales", permissions: ["view_clients", "edit_clients"] },
+  { icon: Target, path: "/goals", labelKey: "nav.goals", permissions: ["goals:view"] },
+  { icon: Users, path: "/clients", labelKey: "nav.clients", permissions: ["clients:view", "leads:view"] },
+  { icon: ClipboardList, path: "/work-tracking", labelKey: "nav.workTracking", permissions: ["clients:view", "work_tracking:edit"] },
+  { icon: Clock, path: "/work-sessions", labelKey: "nav.workSessions", permissions: ["employees:view", "work_tracking:edit"] },
+  { icon: Package, path: "/packages", labelKey: "nav.packages", permissions: ["packages:create", "packages:edit"] },
+  { icon: FileText, path: "/invoices", labelKey: "nav.invoices", permissions: ["invoices:view", "invoices:create", "invoices:edit"] },
+  { icon: UserCircle, path: "/employees", labelKey: "nav.employees", permissions: ["employees:view"] },
+  { icon: Shield, path: "/roles", labelKey: "nav.roles", permissions: ["roles:view"] },
+  { icon: TrendingUp, path: "/sales", labelKey: "nav.sales", permissions: ["clients:view", "clients:edit"] },
   { icon: Calendar, path: "/calendar", labelKey: "nav.calendar", permissions: [] },
-  { icon: DollarSign, path: "/finance", labelKey: "nav.finance", permissions: ["view_finance"] },
-  { icon: Settings, path: "/settings", labelKey: "nav.settings", permissions: ["edit_finance"] },
+  { icon: DollarSign, path: "/finance", labelKey: "nav.finance", permissions: ["finance:view"] },
+  { icon: Settings, path: "/settings", labelKey: "nav.settings", permissions: ["settings:view"] },
 ];
 
 export function AppSidebar() {
   const [location, navigate] = useLocation();
   const { t, direction } = useLanguage();
-  const { hasAnyPermission, isAdmin } = useAuth();
+  const { hasAnyPermission, hasResourcePermission, isAdmin } = useAuth();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
 
@@ -67,7 +69,12 @@ export function AppSidebar() {
     // Admin can see everything
     if (isAdmin) return true;
     // Check if user has any of the required permissions
-    return hasAnyPermission(...item.permissions);
+    if (hasAnyPermission(...item.permissions)) return true;
+    // Fallback: if user has ANY permission on the resource, show the menu
+    const resources = item.permissions
+      .map((p) => (typeof p === "string" && p.includes(":")) ? p.split(":")[0] : "")
+      .filter(Boolean);
+    return resources.some((r) => hasResourcePermission(r));
   });
 
   return (

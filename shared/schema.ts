@@ -13,13 +13,35 @@ export const session = mysqlTable("session", {
   expire: timestamp("expire").notNull(),
 });
 
+export const roles = mysqlTable("roles", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  name: varchar("name", { length: 50 }).notNull().unique(), // e.g., "Admin", "Manager", "Sales"
+  nameAr: varchar("name_ar", { length: 50 }).notNull(),
+  description: text("description"),
+  permissions: json("permissions").notNull().default(sql`('[]')`), // Array of permission strings "resource:action"
+  isSystem: boolean("is_system").notNull().default(false), // System roles cannot be deleted
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow(),
+});
+
+export const insertRoleSchema = createInsertSchema(roles).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertRole = z.infer<typeof insertRoleSchema>;
+export type Role = InferSelectModel<typeof roles>;
+
 export const users = mysqlTable("users", {
   id: varchar("id", { length: 36 }).primaryKey(),
   email: varchar("email", { length: 255 }).notNull().unique(),
   password: varchar("password", { length: 255 }).notNull(),
   name: varchar("name", { length: 255 }).notNull(),
-  role: varchar("role", { length: 50 }).notNull().default("employee"),
-  permissions: json("permissions").default(sql`('[]')`),
+  roleId: varchar("role_id", { length: 36 }).references(() => roles.id), // Link to roles table
+  // specificPermissions allows overriding the role's permissions for a specific user
+  // It can add extra permissions or deny existing ones (if we implement deny logic, but for now let's say it adds)
+  permissions: json("permissions").default(sql`('[]')`), 
   avatar: text("avatar"),
   isActive: boolean("is_active").notNull().default(true),
   nameEn: varchar("name_en", { length: 255 }),
@@ -67,7 +89,7 @@ export type ClientUser = InferSelectModel<typeof clientUsers>;
 export const invitations = mysqlTable("invitations", {
   id: varchar("id", { length: 36 }).primaryKey(),
   email: varchar("email", { length: 255 }).notNull(),
-  role: varchar("role", { length: 50 }).notNull().default("employee"),
+  roleId: varchar("role_id", { length: 36 }).notNull(), // Changed from role string to roleId
   permissions: json("permissions").default(sql`('[]')`),
   token: varchar("token", { length: 255 }).notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
@@ -89,19 +111,24 @@ export const insertInvitationSchema = createInsertSchema(invitations).omit({
 export type InsertInvitation = z.infer<typeof insertInvitationSchema>;
 export type Invitation = InferSelectModel<typeof invitations>;
 
-export const PermissionEnum = z.enum([
-  "view_clients", "edit_clients", "archive_clients",
-  "view_leads", "edit_leads",
-  "view_packages", "create_packages", "edit_packages",
-  "view_invoices", "create_invoices", "edit_invoices",
-  "view_goals", "edit_goals",
-  "view_finance", "edit_finance",
-  "view_employees", "edit_employees",
-  "assign_employees", "edit_work_tracking",
-  "view_reports"
-]);
+export const ALL_PERMISSIONS = {
+  dashboard: ["view"],
+  clients: ["view", "create", "edit", "delete", "export"],
+  leads: ["view", "create", "edit", "delete", "convert"],
+  packages: ["view", "create", "edit", "delete"],
+  invoices: ["view", "create", "edit", "delete", "send"],
+  goals: ["view", "create", "edit", "delete"],
+  finance: ["view", "create", "edit", "delete", "view_reports"],
+  employees: ["view", "create", "edit", "delete", "manage_salaries"],
+  work_tracking: ["view", "create", "edit", "delete", "approve"],
+  reports: ["view", "export"],
+  settings: ["view", "edit"],
+  roles: ["view", "create", "edit", "delete"], // New permission for managing roles
+} as const;
 
-export type Permission = z.infer<typeof PermissionEnum>;
+export type Resource = keyof typeof ALL_PERMISSIONS;
+export type PermissionString = string; // Format: "resource:action"
+
 
 export const passwordResets = mysqlTable("password_resets", {
   id: varchar("id", { length: 36 }).primaryKey(),
@@ -339,8 +366,8 @@ export const employees = mysqlTable("employees", {
   nameEn: varchar("name_en", { length: 255 }),
   email: varchar("email", { length: 255 }).notNull().unique(),
   phone: varchar("phone", { length: 50 }),
-  role: varchar("role", { length: 50 }).notNull(),
-  roleAr: varchar("role_ar", { length: 50 }),
+  roleId: varchar("role_id", { length: 36 }).notNull(), // Changed from role string
+  roleAr: varchar("role_ar", { length: 50 }), // We can keep this for display or remove it. Let's keep for now but maybe it should be fetched from roles table.
   department: varchar("department", { length: 100 }),
   jobTitle: varchar("job_title", { length: 100 }),
   profileImage: text("profile_image"),

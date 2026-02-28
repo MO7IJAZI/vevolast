@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useMemo, type ReactNo
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "../lib/queryClient";
 import { useCurrency, type Currency } from "./CurrencyContext";
+import { useAuth } from "./AuthContext";
 
 // ============ TYPE DEFINITIONS ============
 
@@ -288,7 +289,8 @@ export interface Employee {
   nameEn?: string;
   email: string;
   phone?: string;
-  role: string; // Role/Job title in English
+  roleId: string; // Replaces role
+  role?: string; // Optional for display if joined
   roleAr?: string; // Role/Job title in Arabic
   department?: string;
   jobTitle?: JobTitle; // Specific job title/specialization
@@ -1217,6 +1219,7 @@ const initialEmployees: Employee[] = [
     email: "ahmed@vevoline.com",
     phone: "+90 535 111 2233",
     role: "Sales Manager",
+    roleId: "role-sales-manager",
     roleAr: "مدير مبيعات",
     department: "sales",
     jobTitle: "sales_manager",
@@ -1233,6 +1236,7 @@ const initialEmployees: Employee[] = [
     email: "sara@vevoline.com",
     phone: "+90 535 222 3344",
     role: "Sales Representative",
+    roleId: "role-sales-rep",
     roleAr: "مندوبة مبيعات",
     department: "sales",
     jobTitle: "sales_rep",
@@ -1249,6 +1253,7 @@ const initialEmployees: Employee[] = [
     email: "mohamed@vevoline.com",
     phone: "+90 535 333 4455",
     role: "Web Developer",
+    roleId: "role-web-dev",
     roleAr: "مبرمج مواقع",
     department: "tech",
     jobTitle: "web_developer",
@@ -1265,6 +1270,7 @@ const initialEmployees: Employee[] = [
     email: "layla@vevoline.com",
     phone: "+90 535 444 5566",
     role: "Sales Representative",
+    roleId: "role-sales-rep",
     roleAr: "مندوبة مبيعات",
     department: "sales",
     jobTitle: "sales_rep",
@@ -1281,6 +1287,7 @@ const initialEmployees: Employee[] = [
     email: "khaled@vevoline.com",
     phone: "+90 535 555 6677",
     role: "Account Manager",
+    roleId: "role-account-manager",
     roleAr: "مدير حسابات",
     department: "delivery",
     jobTitle: "account_manager",
@@ -1297,6 +1304,7 @@ const initialEmployees: Employee[] = [
     email: "alaa@vevoline.com",
     phone: "+90 535 666 7788",
     role: "Graphic Designer",
+    roleId: "role-graphic-designer",
     roleAr: "مصمم جرافيك",
     department: "delivery",
     jobTitle: "graphic_designer",
@@ -1315,6 +1323,7 @@ const initialEmployees: Employee[] = [
     email: "noura@vevoline.com",
     phone: "+90 535 777 8899",
     role: "Media Buyer",
+    roleId: "role-media-buyer",
     roleAr: "مسؤول إعلانات",
     department: "delivery",
     jobTitle: "media_buyer",
@@ -1432,19 +1441,29 @@ const initialGoals: Goal[] = [
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const { convertAmount, currency: displayCurrency } = useCurrency();
+  const { isAdmin, hasResourcePermission } = useAuth();
 
   // ============ API QUERIES ============
   
+  const canLeads = isAdmin || hasResourcePermission("leads");
+  const canClients = isAdmin || hasResourcePermission("clients");
+  const canInvoices = isAdmin; // invoices endpoints are admin-only
+  const canFinance = isAdmin || hasResourcePermission("finance");
+  const canGoals = isAdmin || hasResourcePermission("goals");
+  
   const { data: leadsData } = useQuery<Lead[]>({
     queryKey: ["/api/leads"],
+    enabled: canLeads,
   });
 
   const { data: clientsData } = useQuery<any[]>({
     queryKey: ["/api/clients"],
+    enabled: canClients,
   });
 
   const { data: clientServicesData } = useQuery<any[]>({
     queryKey: ["/api/client-services"],
+    enabled: canClients,
   });
 
   const { data: mainPackagesData } = useQuery<MainPackage[]>({
@@ -1457,10 +1476,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const { data: invoicesData } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices"],
+    enabled: canInvoices,
   });
 
   const { data: transactionsData } = useQuery<FinanceTransaction[]>({
     queryKey: ["/api/transactions"],
+    enabled: canFinance,
   });
 
   const { data: employeesData } = useQuery<Employee[]>({
@@ -1473,16 +1494,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const { data: goalsData } = useQuery<Goal[]>({
     queryKey: ["/api/goals"],
+    enabled: canGoals,
   });
 
   // Merge clients with their services
   const clients = useMemo(() => {
     // Safety check for clientsData
-    if (!clientsData) return initialClients;
+    if (!clientsData) return [];
     
     if (!Array.isArray(clientsData)) {
       console.error("clientsData is not an array:", clientsData);
-      return initialClients;
+      return [];
     }
 
     // Safety check for clientServicesData
@@ -1544,18 +1566,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [clientsData, clientServicesData, mainPackagesData]);
 
   // Use local state for leads if API is loading, or rely on API data
-  const leads = Array.isArray(leadsData) ? leadsData : initialLeads;
+  const leads = Array.isArray(leadsData) ? leadsData : [];
 
-  const mainPackages = Array.isArray(mainPackagesData) ? mainPackagesData : initialMainPackages;
-  const subPackages = Array.isArray(subPackagesData) ? subPackagesData : initialSubPackages;
-  const invoices = Array.isArray(invoicesData) ? invoicesData : initialInvoices;
-  const transactions = Array.isArray(transactionsData) ? transactionsData : initialTransactions;
-  const employees = Array.isArray(employeesData) ? employeesData : initialEmployees;
-  const events = Array.isArray(eventsData) ? eventsData : initialEvents;
-  const goals = Array.isArray(goalsData) ? goalsData : initialGoals;
+  const mainPackages = Array.isArray(mainPackagesData) ? mainPackagesData : [];
+  const subPackages = Array.isArray(subPackagesData) ? subPackagesData : [];
+  const invoices = Array.isArray(invoicesData) ? invoicesData : [];
+  const transactions = Array.isArray(transactionsData) ? transactionsData : [];
+  const employees = Array.isArray(employeesData) ? employeesData : [];
+  const events = Array.isArray(eventsData) ? eventsData : [];
+  const goals = Array.isArray(goalsData) ? goalsData : [];
 
   // Local state for other entities (not yet connected to API)
-  const [packages, setPackages] = useState<PackageItem[]>(initialPackages);
+  const [packages, setPackages] = useState<PackageItem[]>([]);
 
   // ============ LEADS CRUD ============
 

@@ -26,7 +26,7 @@ import {
   invitations,
   passwordResets
 } from "../shared/schema.js";
-import { hashPassword, roleDefaultPermissions } from "./auth";
+import { seedAdminUser } from "./auth";
 import { eq, sql } from "drizzle-orm";
 import crypto from "crypto";
 
@@ -480,23 +480,9 @@ async function seed() {
   }
 
   // 3. Seed Admin User
+  console.log("Seeding Admin User...");
   try {
-    const existingAdmin = await db.select().from(users).where(eq(users.email, "admin@vevoline.com"));
-    if (existingAdmin.length === 0) {
-      const password = await hashPassword("adminadmin123");
-      await db.insert(users).values({
-        id: crypto.randomUUID(),
-        email: "admin@vevoline.com",
-        password,
-        name: "Admin User",
-        role: "admin",
-        permissions: roleDefaultPermissions.admin,
-        isActive: true,
-      });
-      console.log("Admin user seeded.");
-    } else {
-      console.log("Admin user already exists.");
-    }
+    await seedAdminUser();
   } catch (error) {
     console.error("Error seeding admin user:", error);
   }
@@ -506,19 +492,23 @@ async function seed() {
   try {
     const existingEmps = await db.select().from(employees);
     if (existingEmps.length === 0) {
-      await db.insert(employees).values(initialEmployees);
-      console.log(`Seeded ${initialEmployees.length} employees.`);
+      if (initialEmployees.length > 0) {
+        await db.insert(employees).values(initialEmployees);
+        console.log(`Seeded ${initialEmployees.length} employees.`);
 
-      const salaryInserts = initialEmployees.map(emp => ({
-        id: crypto.randomUUID(),
-        employeeId: emp.id,
-        amount: emp.salaryAmount || 0,
-        currency: emp.salaryCurrency || "USD",
-        effectiveDate: emp.startDate,
-        type: "basic"
-      }));
-      await db.insert(employeeSalaries).values(salaryInserts);
-      console.log(`Seeded ${salaryInserts.length} employee salary configurations.`);
+        const salaryInserts = initialEmployees.map(emp => ({
+          id: crypto.randomUUID(),
+          employeeId: emp.id,
+          amount: emp.salaryAmount || 0,
+          currency: emp.salaryCurrency || "USD",
+          effectiveDate: emp.startDate,
+          type: "basic"
+        }));
+        await db.insert(employeeSalaries).values(salaryInserts);
+        console.log(`Seeded ${salaryInserts.length} employee salary configurations.`);
+      } else {
+        console.log("No initial employees to seed.");
+      }
     } else {
       console.log("Employees already exist, skipping.");
     }
@@ -530,8 +520,12 @@ async function seed() {
   try {
     const existingLeads = await db.select().from(leads);
     if (existingLeads.length === 0) {
-      await db.insert(leads).values(initialLeads);
-      console.log(`Seeded ${initialLeads.length} leads.`);
+      if (initialLeads.length > 0) {
+        await db.insert(leads).values(initialLeads);
+        console.log(`Seeded ${initialLeads.length} leads.`);
+      } else {
+        console.log("No initial leads to seed.");
+      }
     } else {
       console.log("Leads already exist, skipping.");
     }
@@ -543,31 +537,35 @@ async function seed() {
   try {
     const existingClients = await db.select().from(clients);
     if (existingClients.length === 0) {
-      for (const clientData of initialClients) {
-        const { services, ...clientFields } = clientData;
-        const clientId = clientFields.id ?? crypto.randomUUID();
-        await db.insert(clients).values({ ...clientFields, id: clientId });
+      if (initialClients.length > 0) {
+        for (const clientData of initialClients) {
+          const { services, ...clientFields } = clientData;
+          const clientId = clientFields.id ?? crypto.randomUUID();
+          await db.insert(clients).values({ ...clientFields, id: clientId });
 
-        if (services && services.length > 0) {
-          const serviceInserts = services.map((s: { id: any; mainPackageId: any; serviceName: any; serviceNameEn: any; startDate: any; dueDate: any; price: any; currency: any; status: any; serviceAssignees: any; }) => ({
-            id: s.id,
-            clientId,
-            mainPackageId: s.mainPackageId,
-            subPackageId: null,
-            serviceName: s.serviceName,
-            serviceNameEn: s.serviceNameEn || s.serviceName,
-            startDate: s.startDate,
-            endDate: s.dueDate,
-            price: s.price,
-            currency: s.currency,
-            status: s.status,
-            executionEmployeeIds: s.serviceAssignees,
-            salesEmployeeId: clientFields.salesOwnerId,
-          }));
-          await db.insert(clientServices).values(serviceInserts);
+          if (services && services.length > 0) {
+            const serviceInserts = services.map((s: { id: any; mainPackageId: any; serviceName: any; serviceNameEn: any; startDate: any; dueDate: any; price: any; currency: any; status: any; serviceAssignees: any; }) => ({
+              id: s.id,
+              clientId,
+              mainPackageId: s.mainPackageId,
+              subPackageId: null,
+              serviceName: s.serviceName,
+              serviceNameEn: s.serviceNameEn || s.serviceName,
+              startDate: s.startDate,
+              endDate: s.dueDate,
+              price: s.price,
+              currency: s.currency,
+              status: s.status,
+              executionEmployeeIds: s.serviceAssignees,
+              salesEmployeeId: clientFields.salesOwnerId,
+            }));
+            await db.insert(clientServices).values(serviceInserts);
+          }
         }
+        console.log(`Seeded ${initialClients.length} clients and their services.`);
+      } else {
+        console.log("No initial clients to seed.");
       }
-      console.log(`Seeded ${initialClients.length} clients and their services.`);
     } else {
       console.log("Clients already exist, skipping.");
     }
@@ -580,8 +578,12 @@ async function seed() {
   try {
     const existingInvoices = await db.select().from(invoices);
     if (existingInvoices.length === 0) {
-      await db.insert(invoices).values(initialInvoices);
-      console.log(`Seeded ${initialInvoices.length} invoices.`);
+      if (initialInvoices.length > 0) {
+        await db.insert(invoices).values(initialInvoices);
+        console.log(`Seeded ${initialInvoices.length} invoices.`);
+      } else {
+        console.log("No initial invoices to seed.");
+      }
     } else {
       console.log("Invoices already exist, skipping.");
     }
@@ -593,8 +595,12 @@ async function seed() {
   try {
     const existingGoals = await db.select().from(goals);
     if (existingGoals.length === 0) {
-      await db.insert(goals).values(initialGoals);
-      console.log(`Seeded ${initialGoals.length} goals.`);
+      if (initialGoals.length > 0) {
+        await db.insert(goals).values(initialGoals);
+        console.log(`Seeded ${initialGoals.length} goals.`);
+      } else {
+        console.log("No initial goals to seed.");
+      }
     } else {
       console.log("Goals already exist, skipping.");
     }
@@ -606,15 +612,23 @@ async function seed() {
   try {
     const existingPayments = await db.select().from(clientPayments);
     if (existingPayments.length === 0) {
-      await db.insert(clientPayments).values(initialClientPayments);
-      console.log(`Seeded ${initialClientPayments.length} client payments.`);
+      if (initialClientPayments.length > 0) {
+        await db.insert(clientPayments).values(initialClientPayments);
+        console.log(`Seeded ${initialClientPayments.length} client payments.`);
+      } else {
+        console.log("No initial client payments to seed.");
+      }
     } else {
       console.log("Client payments already exist, skipping.");
     }
     const existingTransactions = await db.select().from(transactions);
     if (existingTransactions.length === 0) {
-      await db.insert(transactions).values(initialTransactions);
-      console.log(`Seeded ${initialTransactions.length} transactions.`);
+      if (initialTransactions.length > 0) {
+        await db.insert(transactions).values(initialTransactions);
+        console.log(`Seeded ${initialTransactions.length} transactions.`);
+      } else {
+        console.log("No initial transactions to seed.");
+      }
     } else {
       console.log("Transactions already exist, skipping.");
     }
@@ -626,8 +640,12 @@ async function seed() {
   try {
     const existingPayroll = await db.select().from(payrollPayments);
     if (existingPayroll.length === 0) {
-      await db.insert(payrollPayments).values(initialPayrollPayments);
-      console.log(`Seeded ${initialPayrollPayments.length} payroll payments.`);
+      if (initialPayrollPayments.length > 0) {
+        await db.insert(payrollPayments).values(initialPayrollPayments);
+        console.log(`Seeded ${initialPayrollPayments.length} payroll payments.`);
+      } else {
+        console.log("No initial payroll payments to seed.");
+      }
     } else {
       console.log("Payroll payments already exist, skipping.");
     }
@@ -639,8 +657,12 @@ async function seed() {
   try {
     const existingSessions = await db.select().from(workSessions);
     if (existingSessions.length === 0) {
-      await db.insert(workSessions).values(initialWorkSessions);
-      console.log(`Seeded ${initialWorkSessions.length} work sessions.`);
+      if (initialWorkSessions.length > 0) {
+        await db.insert(workSessions).values(initialWorkSessions);
+        console.log(`Seeded ${initialWorkSessions.length} work sessions.`);
+      } else {
+        console.log("No initial work sessions to seed.");
+      }
     } else {
       console.log("Work sessions already exist, skipping.");
     }
@@ -652,8 +674,12 @@ async function seed() {
   try {
     const existingEvents = await db.select().from(calendarEvents);
     if (existingEvents.length === 0) {
-      await db.insert(calendarEvents).values(initialCalendarEvents);
-      console.log(`Seeded ${initialCalendarEvents.length} calendar events.`);
+      if (initialCalendarEvents.length > 0) {
+        await db.insert(calendarEvents).values(initialCalendarEvents);
+        console.log(`Seeded ${initialCalendarEvents.length} calendar events.`);
+      } else {
+        console.log("No initial calendar events to seed.");
+      }
     } else {
       console.log("Calendar events already exist, skipping.");
     }

@@ -2,7 +2,7 @@ import { Express, Request, Response, NextFunction } from "express";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { db } from "./db";
-import { users, invitations, passwordResets, clientUsers, Permission } from "../shared/schema.js";
+import { users, invitations, passwordResets, clientUsers, roles, employees, ALL_PERMISSIONS } from "../shared/schema.js";
 import { eq, and, gt } from "drizzle-orm";
 import { sendInvitationEmail, sendPasswordResetEmail } from "./email";
 
@@ -14,7 +14,8 @@ declare module "express-session" {
   interface SessionData {
     userId: string;
     userEmail: string;
-    userRole: string;
+    userRole: string; // This will now be the role NAME (e.g., 'admin', 'employee')
+    userRoleId: string; // New field
     userName: string;
     userPermissions: string[];
     isClientUser?: boolean;
@@ -22,44 +23,21 @@ declare module "express-session" {
   }
 }
 
-// Default permissions for each role
-// All available permissions - aligned with PermissionEnum in shared/schema.ts
-export const roleDefaultPermissions: Record<string, string[]> = {
-  admin: [
-    "view_clients", "edit_clients", "archive_clients", 
-    "view_leads", "edit_leads",
-    "create_packages", "edit_packages", 
-    "view_invoices", "create_invoices", "edit_invoices",
-    "view_goals", "edit_goals", 
-    "view_finance", "edit_finance",
-    "assign_employees", "edit_work_tracking", 
-    "view_employees", "edit_employees",
-    "view_reports"
-  ],
-  sales: [
-    "view_clients", "edit_clients", 
-    "view_leads", "edit_leads",
-    "view_goals", 
-    "view_packages"
-  ],
-  execution: [
-    "view_clients", 
-    "view_goals", 
-    "edit_work_tracking",
-    "view_packages"
-  ],
-  finance: [
-    "view_clients", 
-    "view_goals", 
-    "view_finance", 
-    "view_invoices", "create_invoices", "edit_invoices"
-  ],
-  viewer: [
-    "view_clients", 
-    "view_leads", 
-    "view_goals",
-    "view_packages"
-  ],
+// Generate all permissions array for Admin
+export const getAllPermissions = () => {
+  const permissions: string[] = [];
+  // Ensure we are working with an object before iterating
+  if (ALL_PERMISSIONS && typeof ALL_PERMISSIONS === 'object') {
+    Object.entries(ALL_PERMISSIONS).forEach(([resource, actions]) => {
+      // @ts-ignore
+      if (Array.isArray(actions)) {
+        actions.forEach(action => {
+          permissions.push(`${resource}:${action}`);
+        });
+      }
+    });
+  }
+  return permissions;
 };
 
 export function generateToken(): string {
@@ -74,6 +52,32 @@ export function comparePassword(password: string, hash: string): Promise<boolean
   return bcrypt.compare(password, hash);
 }
 
+function normalizePermissions(input: any): string[] {
+  if (!input) return [];
+  if (Array.isArray(input)) {
+    return Array.from(new Set(input.filter((p) => typeof p === "string")));
+  }
+  if (typeof input === "string") {
+    try {
+      const parsed = JSON.parse(input);
+      return normalizePermissions(parsed);
+    } catch {
+      return [];
+    }
+  }
+  if (typeof input === "object") {
+    const out: string[] = [];
+    for (const [resource, actions] of Object.entries(input)) {
+      if (Array.isArray(actions)) {
+        for (const a of actions) {
+          if (typeof a === "string") out.push(`${resource}:${a}`);
+        }
+      }
+    }
+    return Array.from(new Set(out));
+  }
+  return [];
+}
 const passwordSchema = {
   minLength: 8,
   hasUppercase: /[A-Z]/,
@@ -114,56 +118,148 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+export function requireClientAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session || !req.session.userId) {
-    console.log(`[Auth] requireAdmin failed: No active session. Session ID: ${req.sessionID}`);
     return res.status(401).json({ error: "Unauthorized: Please log in again" });
   }
-  if (req.session.userRole !== "admin") {
-    console.log(`[Auth] requireAdmin failed: User role is '${req.session.userRole}', expected 'admin'. User ID: ${req.session.userId}`);
-    return res.status(403).json({ error: "Forbidden: Admin access required" });
+  if (!req.session.isClientUser) {
+    return res.status(403).json({ error: "Forbidden: Client access required" });
   }
   next();
 }
 
-export function requirePermission(...permissions: string[]) {
-  return (req: Request, res: Response, next: NextFunction) => {
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: "Unauthorized: Please log in again" });
+  }
+  // Always verify role from DB to avoid stale session role
+  db.select().from(users).where(eq(users.id, req.session.userId)).limit(1)
+    .then(async (found) => {
+      const user = found[0];
+      if (!user || !user.isActive) {
+        req.session.destroy(() => {});
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      let isAdmin = false;
+      if (user.roleId) {
+        const [role] = await db.select().from(roles).where(eq(roles.id, user.roleId)).limit(1);
+        isAdmin = role?.name === "admin";
+      }
+      if (!isAdmin) {
+        return res.status(403).json({ error: "Forbidden: Admin access required" });
+      }
+      // Optionally keep session in sync
+      req.session.userRole = "admin";
+      next();
+    })
+    .catch(() => res.status(500).json({ error: "Auth check failed" }));
+}
+
+export function requirePermission(resource: string, action: string) {
+  return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.session?.userId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
     if (req.session.isClientUser) {
       return res.status(403).json({ error: "Staff access required" });
     }
-    if (req.session.userRole === "admin") {
-      return next();
+
+    try {
+      // Load fresh user and role to avoid stale session permissions
+      const [user] = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+      if (!user || !user.isActive) {
+        req.session.destroy(() => {});
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      let roleName = "employee";
+      let rolePermissions: string[] = [];
+      if (user.roleId) {
+        const [role] = await db.select().from(roles).where(eq(roles.id, user.roleId)).limit(1);
+        if (role) {
+          roleName = role.name;
+          rolePermissions = normalizePermissions(role.permissions);
+        }
+      }
+      if (roleName === "admin") {
+        // Keep session synced for UI checks
+        req.session.userRole = "admin";
+        req.session.userPermissions = getAllPermissions();
+        return next();
+      }
+
+      const userSpecific = normalizePermissions(user.permissions);
+      const allPermissions = Array.from(new Set([...(rolePermissions || []), ...userSpecific]));
+      // Keep session synced for UI checks
+      req.session.userRole = roleName;
+      req.session.userRoleId = user.roleId || "";
+      req.session.userPermissions = allPermissions;
+
+      const requiredPermission = `${resource}:${action}`;
+      // If action is "view", allow access if the user has ANY permission on the same resource
+      if (action === "view") {
+        const hasAnyOnResource = allPermissions.some((p) => typeof p === "string" && p.startsWith(`${resource}:`));
+        if (hasAnyOnResource) {
+          return next();
+        }
+      }
+      if (!allPermissions.includes(requiredPermission)) {
+        return res.status(403).json({ error: `Permission denied: ${requiredPermission}` });
+      }
+      next();
+    } catch (e) {
+      return res.status(500).json({ error: "Auth check failed" });
     }
-    const userPermissions = req.session.userPermissions || [];
-    const hasPermission = permissions.some(p => userPermissions.includes(p));
-    if (!hasPermission) {
-      return res.status(403).json({ error: "Permission denied" });
-    }
-    next();
   };
 }
 
-export function requireClientAuth(req: Request, res: Response, next: NextFunction) {
-  if (!req.session?.userId || !req.session.isClientUser) {
-    return res.status(401).json({ error: "Client authentication required" });
-  }
-  next();
-}
-
 export async function seedAdminUser() {
-  // Use ENV secrets for admin credentials (do NOT hardcode)
   const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD;
   
   if (!adminEmail || !adminPassword) {
-    console.log("⚠️ ADMIN_EMAIL or ADMIN_PASSWORD not set in environment secrets. Skipping admin seed.");
+    console.log("⚠️ ADMIN_EMAIL or ADMIN_PASSWORD not set. Skipping admin seed.");
     return;
   }
   
   try {
+    // 1. Ensure Admin Role Exists
+    let [adminRole] = await db.select().from(roles).where(eq(roles.name, "admin")).limit(1);
+    
+    if (!adminRole) {
+      const allPerms = getAllPermissions();
+      const roleId = crypto.randomUUID();
+      await db.insert(roles).values({
+        id: roleId,
+        name: "admin",
+        nameAr: "مدير النظام",
+        description: "Full access to all system features",
+        permissions: allPerms,
+        isSystem: true,
+      });
+      [adminRole] = await db.select().from(roles).where(eq(roles.id, roleId));
+      console.log("✅ Admin Role created");
+    } else {
+       // Update admin permissions to ensure they have everything if new permissions were added
+       const allPerms = getAllPermissions();
+       await db.update(roles).set({ permissions: allPerms }).where(eq(roles.id, adminRole.id));
+    }
+
+    // 2. Ensure Employee Role Exists (Default)
+    let [employeeRole] = await db.select().from(roles).where(eq(roles.name, "employee")).limit(1);
+    if (!employeeRole) {
+       await db.insert(roles).values({
+        id: crypto.randomUUID(),
+        name: "employee",
+        nameAr: "موظف",
+        description: "Basic employee access",
+        permissions: [],
+        isSystem: true,
+      });
+      console.log("✅ Employee Role created");
+    }
+
+    // 3. Ensure Admin User Exists
     const existingAdmin = await db.select().from(users).where(eq(users.email, adminEmail)).limit(1);
     
     if (existingAdmin.length === 0) {
@@ -172,36 +268,25 @@ export async function seedAdminUser() {
         id: crypto.randomUUID(),
         email: adminEmail,
         password: hashedPassword,
-        name: "أسامة أنور",
-        nameEn: "Osama Anwar",
-        role: "admin",
-        permissions: roleDefaultPermissions.admin,
+        name: "Admin User",
+        nameEn: "Admin User",
+        roleId: adminRole.id,
+        permissions: [],
         department: "admin",
         isActive: true,
       });
       console.log("✅ Admin user created successfully:", adminEmail);
     } else {
-      // Update password hash if it changed and ensure all permissions are set
-      const hashedPassword = await hashPassword(adminPassword);
+      // Update admin to link to the admin role if not already
       await db.update(users)
         .set({ 
-          password: hashedPassword,
-          permissions: roleDefaultPermissions.admin,
-          isActive: true,
+           roleId: adminRole.id
         })
         .where(eq(users.id, existingAdmin[0].id));
-      console.log("✅ Admin user updated:", adminEmail);
     }
   } catch (error) {
     console.error("Error seeding admin user:", error);
   }
-}
-
-function getUserPermissions(user: { role: string; permissions: any }): string[] {
-  if (Array.isArray(user.permissions) && user.permissions.length > 0) {
-    return user.permissions;
-  }
-  return roleDefaultPermissions[user.role] || [];
 }
 
 export function registerAuthRoutes(app: Express) {
@@ -223,21 +308,43 @@ export function registerAuthRoutes(app: Express) {
         return res.status(401).json({ error: "ACCOUNT_DEACTIVATED" });
       }
       
-      const isValid = await comparePassword(password, user.password);
-      
-      if (!isValid) {
-        return res.status(401).json({ error: "WRONG_PASSWORD" });
+      // Compare passwords - try to handle potential issues
+      try {
+        const isValid = await comparePassword(password, user.password);
+        
+        if (!isValid) {
+          return res.status(401).json({ error: "WRONG_PASSWORD" });
+        }
+      } catch (err) {
+        console.error("Password comparison error:", err);
+        return res.status(500).json({ error: "Internal auth error" });
       }
       
       await db.update(users).set({ lastLogin: new Date() }).where(eq(users.id, user.id));
       
-      const permissions = getUserPermissions(user);
+      // Fetch Role
+      let roleName = "employee";
+      let rolePermissions: string[] = [];
+      
+      if (user.roleId) {
+        const [foundRole] = await db.select().from(roles).where(eq(roles.id, user.roleId)).limit(1);
+        if (foundRole) {
+          roleName = foundRole.name;
+          rolePermissions = (foundRole.permissions as string[]) || [];
+        }
+      }
+      
+      // Combine role permissions + user specific permissions
+      const rolePermissionsList = Array.isArray(rolePermissions) ? rolePermissions : [];
+      const userSpecificPermissions = Array.isArray(user.permissions) ? (user.permissions as string[]) : [];
+      const allPermissions = Array.from(new Set([...rolePermissionsList, ...userSpecificPermissions]));
       
       req.session.userId = user.id;
       req.session.userEmail = user.email;
-      req.session.userRole = user.role;
+      req.session.userRole = roleName;
+      req.session.userRoleId = user.roleId || "";
       req.session.userName = user.name;
-      req.session.userPermissions = permissions;
+      req.session.userPermissions = allPermissions;
       req.session.isClientUser = false;
       
       res.json({
@@ -245,9 +352,10 @@ export function registerAuthRoutes(app: Express) {
         email: user.email,
         name: user.name,
         nameEn: user.nameEn,
-        role: user.role,
+        role: roleName,
+        roleId: user.roleId,
         department: user.department,
-        permissions,
+        permissions: allPermissions,
       });
     } catch (error) {
       console.error("Login error:", error);
@@ -297,17 +405,27 @@ export function registerAuthRoutes(app: Express) {
         req.session.destroy(() => {});
         return res.status(401).json({ error: "Not authenticated" });
       }
+
+      // Fetch Role
+      const [userRole] = await db.select().from(roles).where(eq(roles.id, user.roleId!)).limit(1);
       
-      const permissions = getUserPermissions(user);
+      const rolePermissions = userRole?.permissions;
+      const rolePermissionsList = normalizePermissions(rolePermissions);
+      
+      const userPermissions = user.permissions;
+      const userSpecificPermissionsList = normalizePermissions(userPermissions);
+      
+      const allPermissions = Array.from(new Set([...rolePermissionsList, ...userSpecificPermissionsList]));
       
       res.json({
         id: user.id,
         email: user.email,
         name: user.name,
         nameEn: user.nameEn,
-        role: user.role,
+        role: userRole?.name || "employee",
+        roleId: user.roleId,
         department: user.department,
-        permissions,
+        permissions: allPermissions,
         isClientUser: false,
       });
     } catch (error) {
@@ -316,12 +434,172 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
+  // ===== ROLES MANAGEMENT ROUTES =====
+  
+  app.get("/api/roles", requireAdmin, async (req, res) => {
+    try {
+      const allRoles = await db.select().from(roles);
+      res.json(allRoles);
+    } catch (error) {
+      console.error("Get roles error:", error);
+      res.status(500).json({ error: "Failed to fetch roles" });
+    }
+  });
+
+  app.post("/api/roles", requireAdmin, async (req, res) => {
+    try {
+      const { name, nameAr, description, permissions } = req.body;
+      
+      if (!name || !nameAr) {
+        return res.status(400).json({ error: "Name and Arabic Name are required" });
+      }
+
+      // Check if role name exists
+      const [existing] = await db.select().from(roles).where(eq(roles.name, name)).limit(1);
+      if (existing) {
+        return res.status(400).json({ error: "Role name already exists" });
+      }
+
+      const roleId = crypto.randomUUID();
+      await db.insert(roles).values({
+        id: roleId,
+        name,
+        nameAr,
+        description,
+        permissions: normalizePermissions(permissions),
+      });
+
+      const [newRole] = await db.select().from(roles).where(eq(roles.id, roleId));
+      res.json(newRole);
+    } catch (error) {
+      console.error("Create role error:", error);
+      res.status(500).json({ error: "Failed to create role" });
+    }
+  });
+
+  app.put("/api/roles/:id", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, nameAr, description, permissions } = req.body;
+
+      const [role] = await db.select().from(roles).where(eq(roles.id, id)).limit(1);
+      if (!role) {
+        return res.status(404).json({ error: "Role not found" });
+      }
+
+      if (role.name === "admin" && name !== "admin") {
+         return res.status(400).json({ error: "Cannot rename admin role" });
+      }
+
+      await db.update(roles).set({
+        name, nameAr, description, permissions: normalizePermissions(permissions)
+      }).where(eq(roles.id, id));
+
+      const [updatedRole] = await db.select().from(roles).where(eq(roles.id, id));
+      res.json(updatedRole);
+    } catch (error) {
+       console.error("Update role error:", error);
+       res.status(500).json({ error: "Failed to update role" });
+    }
+  });
+  
+  app.delete("/api/roles/:id", requireAdmin, async (req, res) => {
+     try {
+       const { id } = req.params;
+       const [role] = await db.select().from(roles).where(eq(roles.id, id)).limit(1);
+       
+       if (!role) {
+         return res.status(404).json({ error: "Role not found" });
+       }
+       if (role.isSystem) {
+         return res.status(400).json({ error: "Cannot delete system roles" });
+       }
+
+       // Check if users are assigned
+       const assignedUsers = await db.select().from(users).where(eq(users.roleId, id));
+       if (assignedUsers.length > 0) {
+         return res.status(400).json({ error: `Cannot delete role: assigned to ${assignedUsers.length} user(s)` });
+       }
+
+       // Check if employees are linked to this role (FK constraint)
+       const assignedEmployees = await db.select().from(employees).where(eq(employees.roleId, id));
+       if (assignedEmployees.length > 0) {
+         return res.status(400).json({ error: `Cannot delete role: assigned to ${assignedEmployees.length} employee(s)` });
+       }
+
+       await db.delete(roles).where(eq(roles.id, id));
+       res.json({ message: "Role deleted successfully" });
+     } catch (error) {
+       console.error("Delete role error:", error);
+       res.status(500).json({ error: "Failed to delete role" });
+     }
+  });
+
+  // Admin endpoint: normalize all roles' permissions (repair corrupted formats)
+  app.post("/api/roles/normalize-permissions", requireAdmin, async (_req, res) => {
+    try {
+      const all = await db.select().from(roles);
+      for (const r of all) {
+        const normalized = normalizePermissions(r.permissions);
+        await db.update(roles).set({ permissions: normalized }).where(eq(roles.id, r.id));
+      }
+      res.json({ message: "Roles permissions normalized", count: all.length });
+    } catch (error) {
+      console.error("Normalize roles error:", error);
+      res.status(500).json({ error: "Failed to normalize roles" });
+    }
+  });
+
+  // Admin endpoint: normalize all users' specific permissions
+  app.post("/api/users/normalize-permissions", requireAdmin, async (_req, res) => {
+    try {
+      const allUsers = await db.select().from(users);
+      for (const u of allUsers) {
+        const normalized = normalizePermissions(u.permissions);
+        await db.update(users).set({ permissions: normalized }).where(eq(users.id, u.id));
+      }
+      res.json({ message: "Users permissions normalized", count: allUsers.length });
+    } catch (error) {
+      console.error("Normalize users error:", error);
+      res.status(500).json({ error: "Failed to normalize users" });
+    }
+  });
+
+  // Inspect effective permissions for a given user (admin only)
+  app.get("/api/users/:id/permissions", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const [user] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      let roleName = "employee";
+      let rolePermissions: string[] = [];
+      if (user.roleId) {
+        const [role] = await db.select().from(roles).where(eq(roles.id, user.roleId)).limit(1);
+        if (role) {
+          roleName = role.name;
+          rolePermissions = normalizePermissions(role.permissions);
+        }
+      }
+      if (roleName === "admin") {
+        return res.json({ role: roleName, permissions: getAllPermissions() });
+      }
+      const userSpecific = normalizePermissions(user.permissions);
+      const allPermissions = Array.from(new Set([...(rolePermissions || []), ...userSpecific]));
+      res.json({ role: roleName, permissions: allPermissions });
+    } catch (error) {
+      console.error("Get user permissions error:", error);
+      res.status(500).json({ error: "Failed to get permissions" });
+    }
+  });
+
   app.post("/api/auth/invite", requireAdmin, async (req, res) => {
     try {
-      const { email, name, nameEn, role, department, employeeId, permissions } = req.body;
+      const { email, name, nameEn, roleId, department, employeeId, permissions } = req.body;
       
-      if (!email || !name) {
-        return res.status(400).json({ error: "Email and name are required" });
+      if (!email || !name || !roleId) {
+        return res.status(400).json({ error: "Email, name and role are required" });
       }
       
       const [existingUser] = await db.select().from(users).where(eq(users.email, email.toLowerCase())).limit(1);
@@ -333,32 +611,28 @@ export function registerAuthRoutes(app: Express) {
       const token = generateToken();
       const expiresAt = new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000);
       
-      const resolvedRole = role || "employee";
-      const requestedPermissions = Array.isArray(permissions)
-        ? permissions.filter((p: unknown) => typeof p === "string" && p.length > 0)
-        : [];
-      const resolvedPermissions =
-        requestedPermissions.length > 0 ? requestedPermissions : roleDefaultPermissions[resolvedRole] || [];
-
       await db.insert(invitations).values({
         id: crypto.randomUUID(),
         email: email.toLowerCase(),
         token,
         name,
         nameEn,
-        role: resolvedRole,
-        permissions: resolvedPermissions,
+        roleId: roleId,
+        permissions: permissions || [],
         department,
         employeeId,
         invitedBy: req.session.userId,
         expiresAt,
       });
       
+      // We might need to fetch the role name for the email
+      const [role] = await db.select().from(roles).where(eq(roles.id, roleId)).limit(1);
+
       const emailSent = await sendInvitationEmail(
         email.toLowerCase(),
         name,
         token,
-        resolvedRole
+        role?.nameAr || "Employee"
       );
       
       res.json({
@@ -448,10 +722,8 @@ export function registerAuthRoutes(app: Express) {
         password: hashedPassword,
         name: invitation.name || "",
         nameEn: invitation.nameEn,
-        role: invitation.role,
-        permissions: Array.isArray(invitation.permissions) && invitation.permissions.length > 0
-          ? invitation.permissions
-          : roleDefaultPermissions[invitation.role] || [],
+        roleId: invitation.roleId,
+        permissions: invitation.permissions || [],
         department: invitation.department,
         employeeId: invitation.employeeId,
         isActive: true,
@@ -459,19 +731,14 @@ export function registerAuthRoutes(app: Express) {
       
       await db.update(invitations).set({ usedAt: new Date() }).where(eq(invitations.id, invitation.id));
       
-      // Auto-login after password set
-      const permissions = Array.isArray(invitation.permissions) && invitation.permissions.length > 0
-        ? invitation.permissions
-        : roleDefaultPermissions[invitation.role] || [];
-
-      req.session.userId = userId;
-      req.session.userEmail = invitation.email;
-      req.session.userRole = invitation.role;
-      req.session.userName = invitation.name || "";
-      req.session.userPermissions = permissions;
-      req.session.isClientUser = false;
-
-      res.json({ message: "Password set successfully. You can now login." });
+      // Destroy any existing session to ensure the user must log in with new credentials
+      req.session.destroy((err) => {
+        if (err) {
+          console.error("Error destroying session after setting password:", err);
+        }
+      });
+      
+      res.json({ message: "Password set successfully. Please login." });
     } catch (error) {
       console.error("Set password error:", error);
       res.status(500).json({ error: "Failed to set password" });
@@ -501,17 +768,6 @@ export function registerAuthRoutes(app: Express) {
         token,
         expiresAt,
       });
-      
-      // Try to send email, but also log reset link for testing
-      const APP_URL = process.env.REPL_SLUG 
-        ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER?.toLowerCase()}.repl.co`
-        : process.env.APP_URL || "http://localhost:5000";
-      const resetLink = `${APP_URL}/reset-password?token=${token}`;
-      console.log(`\n===== PASSWORD RESET LINK =====`);
-      console.log(`Email: ${email.toLowerCase()}`);
-      console.log(`Link: ${resetLink}`);
-      console.log(`Expires: ${expiresAt.toISOString()}`);
-      console.log(`================================\n`);
       
       await sendPasswordResetEmail(email.toLowerCase(), token);
     } catch (error) {
@@ -624,18 +880,23 @@ export function registerAuthRoutes(app: Express) {
 
   app.get("/api/users", requireAdmin, async (req, res) => {
     try {
+      // Join with roles
       const allUsers = await db.select({
         id: users.id,
         email: users.email,
         name: users.name,
         nameEn: users.nameEn,
-        role: users.role,
+        roleId: users.roleId,
+        roleName: roles.name,
+        roleNameAr: roles.nameAr,
         department: users.department,
         employeeId: users.employeeId,
         isActive: users.isActive,
         createdAt: users.createdAt,
         lastLogin: users.lastLogin,
-      }).from(users);
+      })
+      .from(users)
+      .leftJoin(roles, eq(users.roleId, roles.id));
       
       res.json(allUsers);
     } catch (error) {
@@ -671,7 +932,7 @@ export function registerAuthRoutes(app: Express) {
   app.patch("/api/users/:id/permissions", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
-      const { role, permissions } = req.body;
+      const { roleId, permissions } = req.body;
       
       const [user] = await db.select().from(users).where(eq(users.id, id as string)).limit(1);
       
@@ -679,8 +940,8 @@ export function registerAuthRoutes(app: Express) {
         return res.status(404).json({ error: "User not found" });
       }
       
-      const updateData: { role?: string; permissions?: string[] } = {};
-      if (role) updateData.role = role;
+      const updateData: { roleId?: string; permissions?: string[] } = {};
+      if (roleId) updateData.roleId = roleId;
       if (permissions) updateData.permissions = permissions;
       
       await db.update(users).set(updateData).where(eq(users.id, id as string));
@@ -692,35 +953,20 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  // ===== CLIENT PORTAL AUTHENTICATION =====
+  // Include client auth routes (unchanged for now as they use clientUsers table)
+  // ... (keeping client routes as is, but we need to ensure we don't delete them)
+  // I will just paste the previous client auth routes here to be safe
   
-  // Client login
   app.post("/api/client/auth/login", async (req, res) => {
     try {
       const { email, password } = req.body;
-      
-      if (!email || !password) {
-        return res.status(400).json({ error: "Email and password are required" });
-      }
-      
+      if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
       const [clientUser] = await db.select().from(clientUsers).where(eq(clientUsers.email, email.toLowerCase())).limit(1);
-      
-      if (!clientUser) {
-        return res.status(401).json({ error: "Invalid email or password" });
-      }
-      
-      if (!clientUser.isActive) {
-        return res.status(401).json({ error: "Account is deactivated" });
-      }
-      
+      if (!clientUser) return res.status(401).json({ error: "Invalid email or password" });
+      if (!clientUser.isActive) return res.status(401).json({ error: "Account is deactivated" });
       const isValid = await comparePassword(password, clientUser.password);
-      
-      if (!isValid) {
-        return res.status(401).json({ error: "Invalid email or password" });
-      }
-      
+      if (!isValid) return res.status(401).json({ error: "Invalid email or password" });
       await db.update(clientUsers).set({ lastLogin: new Date() }).where(eq(clientUsers.id, clientUser.id));
-      
       req.session.userId = clientUser.id;
       req.session.userEmail = clientUser.email;
       req.session.userName = clientUser.clientName;
@@ -728,77 +974,33 @@ export function registerAuthRoutes(app: Express) {
       req.session.userPermissions = [];
       req.session.isClientUser = true;
       req.session.clientId = clientUser.clientId;
-      
-      res.json({
-        id: clientUser.id,
-        email: clientUser.email,
-        name: clientUser.clientName,
-        nameEn: clientUser.clientNameEn,
-        clientId: clientUser.clientId,
-        isClientUser: true,
-      });
+      res.json({ id: clientUser.id, email: clientUser.email, name: clientUser.clientName, nameEn: clientUser.clientNameEn, clientId: clientUser.clientId, isClientUser: true });
     } catch (error) {
       console.error("Client login error:", error);
       res.status(500).json({ error: "Login failed" });
     }
   });
 
-  // Create client user account (admin only)
   app.post("/api/client-users", requireAdmin, async (req, res) => {
     try {
       const { email, password, clientId, clientName, clientNameEn } = req.body;
-      
-      if (!email || !password || !clientId || !clientName) {
-        return res.status(400).json({ error: "Email, password, clientId, and clientName are required" });
-      }
-      
+      if (!email || !password || !clientId || !clientName) return res.status(400).json({ error: "Email, password, clientId, and clientName are required" });
       const [existingUser] = await db.select().from(clientUsers).where(eq(clientUsers.email, email.toLowerCase())).limit(1);
-      
-      if (existingUser) {
-        return res.status(400).json({ error: "Client user with this email already exists" });
-      }
-      
+      if (existingUser) return res.status(400).json({ error: "Client user with this email already exists" });
       const hashedPassword = await hashPassword(password);
-      
       const clientUserId = crypto.randomUUID();
-      await db.insert(clientUsers).values({
-        id: clientUserId,
-        email: email.toLowerCase(),
-        password: hashedPassword,
-        clientId,
-        clientName,
-        clientNameEn,
-        isActive: true,
-      });
+      await db.insert(clientUsers).values({ id: clientUserId, email: email.toLowerCase(), password: hashedPassword, clientId, clientName, clientNameEn, isActive: true });
       const [newClientUser] = await db.select().from(clientUsers).where(eq(clientUsers.id, clientUserId));
-      
-      res.json({
-        id: newClientUser.id,
-        email: newClientUser.email,
-        clientId: newClientUser.clientId,
-        clientName: newClientUser.clientName,
-        message: "Client account created successfully",
-      });
+      res.json({ id: newClientUser.id, email: newClientUser.email, clientId: newClientUser.clientId, clientName: newClientUser.clientName, message: "Client account created successfully" });
     } catch (error) {
       console.error("Create client user error:", error);
       res.status(500).json({ error: "Failed to create client account" });
     }
   });
 
-  // Get all client users (admin only)
   app.get("/api/client-users", requireAdmin, async (req, res) => {
     try {
-      const allClientUsers = await db.select({
-        id: clientUsers.id,
-        email: clientUsers.email,
-        clientId: clientUsers.clientId,
-        clientName: clientUsers.clientName,
-        clientNameEn: clientUsers.clientNameEn,
-        isActive: clientUsers.isActive,
-        createdAt: clientUsers.createdAt,
-        lastLogin: clientUsers.lastLogin,
-      }).from(clientUsers);
-      
+      const allClientUsers = await db.select({ id: clientUsers.id, email: clientUsers.email, clientId: clientUsers.clientId, clientName: clientUsers.clientName, clientNameEn: clientUsers.clientNameEn, isActive: clientUsers.isActive, createdAt: clientUsers.createdAt, lastLogin: clientUsers.lastLogin }).from(clientUsers);
       res.json(allClientUsers);
     } catch (error) {
       console.error("Get client users error:", error);
@@ -806,26 +1008,11 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  // Get client user by client ID (admin only)
   app.get("/api/client-users/by-client/:clientId", requireAdmin, async (req, res) => {
     try {
       const { clientId } = req.params;
-      
-      const [clientUser] = await db.select({
-        id: clientUsers.id,
-        email: clientUsers.email,
-        clientId: clientUsers.clientId,
-        clientName: clientUsers.clientName,
-        clientNameEn: clientUsers.clientNameEn,
-        isActive: clientUsers.isActive,
-        createdAt: clientUsers.createdAt,
-        lastLogin: clientUsers.lastLogin,
-      }).from(clientUsers).where(eq(clientUsers.clientId, clientId as string)).limit(1);
-      
-      if (!clientUser) {
-        return res.json(null);
-      }
-      
+      const [clientUser] = await db.select({ id: clientUsers.id, email: clientUsers.email, clientId: clientUsers.clientId, clientName: clientUsers.clientName, clientNameEn: clientUsers.clientNameEn, isActive: clientUsers.isActive, createdAt: clientUsers.createdAt, lastLogin: clientUsers.lastLogin }).from(clientUsers).where(eq(clientUsers.clientId, clientId as string)).limit(1);
+      if (!clientUser) return res.json(null);
       res.json(clientUser);
     } catch (error) {
       console.error("Get client user error:", error);
@@ -833,19 +1020,12 @@ export function registerAuthRoutes(app: Express) {
     }
   });
 
-  // Toggle client user active status (admin only)
   app.patch("/api/client-users/:id/toggle-active", requireAdmin, async (req, res) => {
     try {
       const { id } = req.params;
-      
       const [clientUser] = await db.select().from(clientUsers).where(eq(clientUsers.id, id as string)).limit(1);
-      
-      if (!clientUser) {
-        return res.status(404).json({ error: "Client user not found" });
-      }
-      
+      if (!clientUser) return res.status(404).json({ error: "Client user not found" });
       await db.update(clientUsers).set({ isActive: !clientUser.isActive }).where(eq(clientUsers.id, id as string));
-      
       res.json({ message: "Client user status updated", isActive: !clientUser.isActive });
     } catch (error) {
       console.error("Toggle client user active error:", error);

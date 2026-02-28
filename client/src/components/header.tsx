@@ -223,32 +223,41 @@ export function Header() {
   const { language, setLanguage, direction, t } = useLanguage();
   const { theme, toggleTheme } = useTheme();
   const { currency, setCurrency } = useCurrency();
-  const { user, logout } = useAuth();
+  const { user, logout, isAdmin, hasResourcePermission, hasPermission } = useAuth();
+  const canFinance = isAdmin || hasResourcePermission("finance");
+  const canManageSalaries = isAdmin || hasPermission("employees:manage_salaries");
   const { clients, employees } = useData();
   const [, navigate] = useLocation();
 
   // Fetch salaries and payments for notifications
   const { data: salaries = [] } = useQuery({
     queryKey: ["/api/employee-salaries"],
+    enabled: canManageSalaries,
   });
 
   const now = new Date();
   const { data: clientPayments = [] } = useQuery({
     queryKey: ["/api/client-payments", { month: now.getMonth() + 1, year: now.getFullYear() }],
     queryFn: async () => {
-      const res = await fetch(`/api/client-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`);
+      const res = await fetch(`/api/client-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`, {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("Failed to fetch client payments");
       return res.json();
     },
+    enabled: canFinance,
   });
 
   const { data: payrollPayments = [] } = useQuery({
     queryKey: ["/api/payroll-payments", { month: now.getMonth() + 1, year: now.getFullYear() }],
     queryFn: async () => {
-      const res = await fetch(`/api/payroll-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`);
+      const res = await fetch(`/api/payroll-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`, {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("Failed to fetch payroll payments");
       return res.json();
     },
+    enabled: canFinance,
   });
 
   // Generate notifications from real data

@@ -35,6 +35,7 @@ import {
   MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { HasPermission } from "@/components/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -1070,14 +1071,14 @@ export default function PackagesPage() {
             <h1 className="text-2xl font-bold">{t.title}</h1>
             <p className="text-muted-foreground">{t.subtitle}</p>
           </div>
-          {isAdmin && (
+          <HasPermission permission="packages:create">
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => openMainPackageModal()} data-testid="button-add-category">
                 <Plus className="h-4 w-4 me-2" />
                 {t.addCategory}
               </Button>
             </div>
-          )}
+          </HasPermission>
         </div>
 
         <Card className="border-dashed">
@@ -1089,12 +1090,12 @@ export default function PackagesPage() {
             <p className="text-muted-foreground text-center max-w-md mb-6">
               {t.emptySubtitle}
             </p>
-            {isAdmin && (
+            <HasPermission permission="packages:create">
               <Button onClick={() => openMainPackageModal()} data-testid="button-add-first-category">
                 <Plus className="h-4 w-4 me-2" />
                 {t.addCategory}
               </Button>
-            )}
+            </HasPermission>
           </CardContent>
         </Card>
 
@@ -1110,7 +1111,7 @@ export default function PackagesPage() {
           <h1 className="text-2xl font-bold">{t.title}</h1>
           <p className="text-muted-foreground">{t.subtitle}</p>
         </div>
-        {hasPermission("create_packages") && (
+        <HasPermission permission="packages:create">
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => openMainPackageModal()} data-testid="button-add-category">
               <Plus className="h-4 w-4 me-2" />
@@ -1121,7 +1122,7 @@ export default function PackagesPage() {
               {t.addPackage}
             </Button>
           </div>
-        )}
+        </HasPermission>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3 mb-6">
@@ -1207,7 +1208,7 @@ export default function PackagesPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          {hasPermission("edit_packages") && (
+                          <HasPermission permission="packages:edit">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button
@@ -1237,7 +1238,7 @@ export default function PackagesPage() {
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
-                          )}
+                          </HasPermission>
                           {isExpanded ? (
                             <ChevronDown className="h-5 w-5 text-muted-foreground" />
                           ) : (
@@ -1253,7 +1254,7 @@ export default function PackagesPage() {
                       {categorySubPackages.length === 0 ? (
                         <div className="text-center py-8 border-t">
                           <p className="text-muted-foreground mb-4">{t.noPackagesInCategory}</p>
-                          {hasPermission("create_packages") && (
+                          <HasPermission permission="packages:create">
                             <Button
                               variant="outline"
                               onClick={() => openSubPackageModal(mainPkg.id)}
@@ -1262,7 +1263,7 @@ export default function PackagesPage() {
                               <Plus className="h-4 w-4 me-2" />
                               {t.addPackageToCategory}
                             </Button>
-                          )}
+                          </HasPermission>
                         </div>
                       ) : (
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 pt-4 border-t">
@@ -1305,7 +1306,7 @@ export default function PackagesPage() {
                                         </Badge>
                                       )}
                                     </div>
-                                    {hasPermission("edit_packages") && (
+                                    <HasPermission permission="packages:edit">
                                       <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
                                           <Button variant="ghost" size="icon" data-testid={`button-menu-package-${subPkg.id}`}>
@@ -1326,7 +1327,7 @@ export default function PackagesPage() {
                                           </DropdownMenuItem>
                                         </DropdownMenuContent>
                                       </DropdownMenu>
-                                    )}
+                                    </HasPermission>
                                   </div>
                                 </CardHeader>
                                 <CardContent className="pt-0">

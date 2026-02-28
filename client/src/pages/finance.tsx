@@ -7,6 +7,7 @@ import {
   ChevronDown, Package, CheckCircle2, Circle, Pencil, Trash2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { HasPermission } from "@/components/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -106,11 +107,14 @@ import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 
 export default function FinancePage() {
-  const { isAdmin, hasPermission } = useAuth();
+  const { isAdmin, hasResourcePermission, hasPermission } = useAuth();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  if (!hasPermission("view_finance")) {
+  const canFinance = isAdmin || hasResourcePermission("finance");
+  const canManageSalaries = isAdmin || hasPermission("employees:manage_salaries");
+
+  if (!canFinance) {
     setLocation("/");
     return null;
   }
@@ -360,6 +364,7 @@ export default function FinancePage() {
       if (!res.ok) throw new Error("Failed to fetch transactions");
       return res.json();
     },
+    enabled: canFinance,
   });
   const transactionsData = Array.isArray(transactionsDataRaw) ? transactionsDataRaw : [];
 
@@ -373,6 +378,7 @@ export default function FinancePage() {
       if (!res.ok) throw new Error("Failed to fetch client payments");
       return res.json();
     },
+    enabled: canFinance,
   });
   const clientPaymentsData = Array.isArray(clientPaymentsDataRaw) ? clientPaymentsDataRaw : [];
 
@@ -386,12 +392,14 @@ export default function FinancePage() {
       if (!res.ok) throw new Error("Failed to fetch payroll payments");
       return res.json();
     },
+    enabled: canFinance,
   });
   const payrollPaymentsData = Array.isArray(payrollPaymentsDataRaw) ? payrollPaymentsDataRaw : [];
 
   // Fetch employee salaries
   const { data: employeeSalariesDataRaw = [] } = useQuery<EmployeeSalary[]>({
     queryKey: ["/api/employee-salaries"],
+    enabled: canManageSalaries,
   });
   const employeeSalariesData = Array.isArray(employeeSalariesDataRaw) ? employeeSalariesDataRaw : [];
 
@@ -1214,14 +1222,18 @@ export default function FinancePage() {
           
           {/* Action Buttons */}
           <div className="flex gap-2">
-            <Button onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income">
-              <TrendingUp className="h-4 w-4 me-2" />
-              {t.addIncome}
-            </Button>
-            <Button variant="outline" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense">
-              <TrendingDown className="h-4 w-4 me-2" />
-              {t.addExpense}
-            </Button>
+            <HasPermission permission="finance:create">
+              <Button onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income">
+                <TrendingUp className="h-4 w-4 me-2" />
+                {t.addIncome}
+              </Button>
+            </HasPermission>
+            <HasPermission permission="finance:create">
+              <Button variant="outline" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense">
+                <TrendingDown className="h-4 w-4 me-2" />
+                {t.addExpense}
+              </Button>
+            </HasPermission>
           </div>
         </div>
       </div>
@@ -1335,12 +1347,12 @@ export default function FinancePage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
               <CardTitle>{t.revenues}</CardTitle>
-              {hasPermission("create_invoices") && (
-              <Button size="sm" onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income-tab">
-                <Plus className="h-4 w-4 me-1" />
-                {t.addIncome}
-              </Button>
-              )}
+              <HasPermission permission="finance:create">
+                <Button size="sm" onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income-tab">
+                  <Plus className="h-4 w-4 me-1" />
+                  {t.addIncome}
+                </Button>
+              </HasPermission>
             </CardHeader>
             <CardContent>
               {incomeTransactions.length === 0 && clientPaymentsData.length === 0 ? (
@@ -1371,7 +1383,7 @@ export default function FinancePage() {
                         </TableCell>
                         <TableCell>{payment.paymentDate}</TableCell>
                         <TableCell>
-                          {hasPermission("edit_finance") && (
+                          <HasPermission permission="finance:edit">
                           <div className="flex gap-1">
                             <Button
                               size="icon"
@@ -1390,7 +1402,7 @@ export default function FinancePage() {
                               <Trash2 className="h-4 w-4 text-red-500" />
                             </Button>
                           </div>
-                          )}
+                          </HasPermission>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1407,7 +1419,7 @@ export default function FinancePage() {
                       </TableCell>
                         <TableCell>{tx.date}</TableCell>
                         <TableCell>
-                          {hasPermission("edit_finance") && (
+                          <HasPermission permission="finance:edit">
                           <div className="flex gap-1">
                             <Button
                               size="icon"
@@ -1426,7 +1438,7 @@ export default function FinancePage() {
                               <Trash2 className="h-4 w-4 text-red-500" />
                             </Button>
                           </div>
-                          )}
+                          </HasPermission>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1442,12 +1454,12 @@ export default function FinancePage() {
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
               <CardTitle>{t.expenses}</CardTitle>
-              {hasPermission("edit_finance") && (
-              <Button size="sm" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense-tab">
-                <Plus className="h-4 w-4 me-1" />
-                {t.addExpense}
-              </Button>
-              )}
+              <HasPermission permission="finance:create">
+                <Button size="sm" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense-tab">
+                  <Plus className="h-4 w-4 me-1" />
+                  {t.addExpense}
+                </Button>
+              </HasPermission>
             </CardHeader>
             <CardContent>
               {expenseTransactions.length === 0 ? (
@@ -1481,7 +1493,7 @@ export default function FinancePage() {
                       </TableCell>
                         <TableCell>{tx.date}</TableCell>
                         <TableCell>
-                          {hasPermission("edit_finance") && (
+                          <HasPermission permission="finance:edit">
                           <div className="flex gap-1">
                             <Button
                               size="icon"
@@ -1509,7 +1521,7 @@ export default function FinancePage() {
                               <Trash2 className="h-4 w-4 text-red-500" />
                             </Button>
                           </div>
-                          )}
+                          </HasPermission>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -1687,6 +1699,7 @@ export default function FinancePage() {
                                 </TableCell>
                                 <TableCell>{payment.notes || "-"}</TableCell>
                                 <TableCell>
+                                  <HasPermission permission="finance:edit">
                                   <div className="flex gap-1">
                                     <Button
                                       size="icon"
@@ -1705,6 +1718,7 @@ export default function FinancePage() {
                                       <Trash2 className="h-4 w-4 text-red-500" />
                                     </Button>
                                   </div>
+                                  </HasPermission>
                                 </TableCell>
                               </TableRow>
                             ))}
@@ -1755,6 +1769,7 @@ export default function FinancePage() {
                           </TableCell>
                           <TableCell>
                             {remaining > 0 && (
+                              <HasPermission permission="finance:create">
                               <Button 
                                 size="sm" 
                                 variant="outline"
@@ -1774,6 +1789,7 @@ export default function FinancePage() {
                                 <Plus className="h-4 w-4 me-1" />
                                 {t.recordPayment}
                               </Button>
+                              </HasPermission>
                             )}
                           </TableCell>
                         </TableRow>

@@ -25,6 +25,7 @@ import { useCurrency } from "@/contexts/CurrencyContext";
 import type { Goal, GoalType, GoalStatus } from "@shared/schema";
 import { goalTypeConfigs } from "@shared/schema";
 import { cn } from "@/lib/utils";
+import { HasAnyPermission, HasPermission } from "@/components/permissions";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   DollarSign,
@@ -111,35 +112,41 @@ export function GoalCard({ goal, onEdit, onDelete }: GoalCardProps) {
 
               <div className="flex items-center gap-2 shrink-0">
                 {getStatusBadge(goal.status as GoalStatus)}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                      data-testid={`button-goal-menu-${goal.id}`}
-                    >
-                      <MoreVertical className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align={direction === "rtl" ? "start" : "end"}>
-                    <DropdownMenuItem
-                      onClick={() => onEdit(goal)}
-                      data-testid={`button-edit-goal-${goal.id}`}
-                    >
-                      <Pencil className="h-4 w-4 me-2" />
-                      {t("common.edit")}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => onDelete(goal.id)}
-                      className="text-destructive focus:text-destructive"
-                      data-testid={`button-delete-goal-${goal.id}`}
-                    >
-                      <Trash2 className="h-4 w-4 me-2" />
-                      {t("common.delete")}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <HasAnyPermission permissions={["goals:edit", "goals:delete"]}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                        data-testid={`button-goal-menu-${goal.id}`}
+                      >
+                        <MoreVertical className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align={direction === "rtl" ? "start" : "end"}>
+                      <HasPermission permission="goals:edit">
+                        <DropdownMenuItem
+                          onClick={() => onEdit(goal)}
+                          data-testid={`button-edit-goal-${goal.id}`}
+                        >
+                          <Pencil className="h-4 w-4 me-2" />
+                          {t("common.edit")}
+                        </DropdownMenuItem>
+                      </HasPermission>
+                      <HasPermission permission="goals:delete">
+                        <DropdownMenuItem
+                          onClick={() => onDelete(goal.id)}
+                          className="text-destructive focus:text-destructive"
+                          data-testid={`button-delete-goal-${goal.id}`}
+                        >
+                          <Trash2 className="h-4 w-4 me-2" />
+                          {t("common.delete")}
+                        </DropdownMenuItem>
+                      </HasPermission>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </HasAnyPermission>
               </div>
             </div>
 

@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Loader2, Eye, EyeOff, Lock, CheckCircle2, XCircle } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export default function SetPasswordPage() {
   const [, setLocation] = useLocation();
@@ -125,6 +125,11 @@ export default function SetPasswordPage() {
 
     try {
       await apiRequest("POST", "/api/auth/set-password", { token, password });
+      
+      // Clear any existing auth session state
+      queryClient.setQueryData(["/api/auth/me"], null);
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      
       toast({
         title: content.success,
       });

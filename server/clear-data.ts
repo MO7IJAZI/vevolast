@@ -26,7 +26,7 @@ import {
   invitations,
   passwordResets
 } from "../shared/schema.js";
-import { hashPassword, roleDefaultPermissions } from "./auth";
+import { seedAdminUser } from "./auth";
 import { eq } from "drizzle-orm";
 import crypto from "crypto";
 
@@ -71,22 +71,13 @@ async function clearData() {
     process.exit(1);
   }
 
-  // 2. Re-create Admin User
-  console.log("Restoring Admin user...");
+  // 2. Re-create Admin Role & User via shared seeding logic
+  console.log("Restoring Admin role and user...");
   try {
-      const password = await hashPassword("adminadmin123");
-      await db.insert(users).values({
-        id: crypto.randomUUID(),
-        email: "admin@vevoline.com",
-        password,
-        name: "Admin User",
-        role: "admin",
-        permissions: roleDefaultPermissions.admin,
-        isActive: true,
-      });
-      console.log("Admin user restored (email: admin@vevoline.com, pass: adminadmin123).");
+    await seedAdminUser();
+    console.log("Admin role and user ensured via seedAdminUser()");
   } catch (error) {
-    console.error("Error restoring admin user:", error);
+    console.error("Error restoring admin role/user:", error);
     process.exit(1);
   }
 

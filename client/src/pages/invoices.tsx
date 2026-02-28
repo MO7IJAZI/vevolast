@@ -47,6 +47,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/AuthContext";
+import { HasPermission } from "@/components/permissions";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useLocation } from "wouter";
 import { useData, type Invoice, type Currency, type ServiceItem } from "@/contexts/DataContext";
@@ -54,6 +55,7 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
+import logoPath from "@assets/logo.png";
 import { ar, enUS } from "date-fns/locale";
 import { useEffect } from "react";
 import { safeJsonParse } from "@/utils/safeJson";
@@ -112,9 +114,10 @@ export default function InvoicesPage() {
   };
 
   // Fetch invoices
+  const canFinance = isAdmin || useAuth().hasResourcePermission("finance");
   const { data: invoices = [], isLoading } = useQuery<Invoice[]>({
     queryKey: ["/api/invoices"],
-    enabled: isAdmin
+    enabled: canFinance
   });
 
   const filteredInvoices = useMemo(() => {
@@ -194,7 +197,7 @@ export default function InvoicesPage() {
     }
   });
 
-  if (!isAdmin) {
+  if (!canFinance) {
     setLocation("/");
     return null;
   }
@@ -286,7 +289,7 @@ export default function InvoicesPage() {
       <body>
         <div class="header">
           <div class="company-info">
-            <h1>Vevoline</h1>
+            <img src="${logoPath}" alt="Vevoline Logo" style="height:48px; width:auto;" />
             <p>Digital Marketing Agency</p>
           </div>
           <div class="invoice-details">
@@ -507,10 +510,12 @@ export default function InvoicesPage() {
             {language === "ar" ? "إدارة فواتير العملاء والمدفوعات" : "Manage client invoices and payments"}
           </p>
         </div>
-        <Button onClick={handleOpenModal}>
-          <Plus className="h-4 w-4 me-2" />
-          {t.createInvoice}
-        </Button>
+        <HasPermission permission="finance:create">
+          <Button onClick={handleOpenModal}>
+            <Plus className="h-4 w-4 me-2" />
+            {t.createInvoice}
+          </Button>
+        </HasPermission>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-card p-4 rounded-lg border shadow-sm">
@@ -545,9 +550,11 @@ export default function InvoicesPage() {
                 <FileText className="h-10 w-10 text-primary" />
               </div>
               <h3 className="text-lg font-semibold mb-2">{t.noInvoices}</h3>
-              <Button variant="outline" onClick={handleOpenModal}>
-                {t.createFirst}
-              </Button>
+              <HasPermission permission="finance:create">
+                <Button variant="outline" onClick={handleOpenModal}>
+                  {t.createFirst}
+                </Button>
+              </HasPermission>
             </div>
           ) : (
             <Table>
@@ -580,14 +587,16 @@ export default function InvoicesPage() {
                     <TableCell>
                       <div className="flex items-center justify-end gap-2">
                         {invoice.status !== "paid" && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleMarkPaidClick(invoice)}
-                            title={t.markPaid}
-                          >
-                            <CheckCircle2 className="h-4 w-4 text-green-600" />
-                          </Button>
+                          <HasPermission permission="finance:edit">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleMarkPaidClick(invoice)}
+                              title={t.markPaid}
+                            >
+                              <CheckCircle2 className="h-4 w-4 text-green-600" />
+                            </Button>
+                          </HasPermission>
                         )}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -596,21 +605,25 @@ export default function InvoicesPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEdit(invoice)}>
-                              <Pencil className="h-4 w-4 me-2" />
-                              {t.edit}
-                            </DropdownMenuItem>
+                            <HasPermission permission="finance:edit">
+                              <DropdownMenuItem onClick={() => handleEdit(invoice)}>
+                                <Pencil className="h-4 w-4 me-2" />
+                                {t.edit}
+                              </DropdownMenuItem>
+                            </HasPermission>
                             <DropdownMenuItem onClick={() => handleDownloadPDF(invoice)}>
                               <Download className="h-4 w-4 me-2" />
                               {t.download}
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={() => deleteMutation.mutate(invoice.id)}
-                            >
-                              <Trash2 className="h-4 w-4 me-2" />
-                              {t.delete}
-                            </DropdownMenuItem>
+                            <HasPermission permission="finance:delete">
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={() => deleteMutation.mutate(invoice.id)}
+                              >
+                                <Trash2 className="h-4 w-4 me-2" />
+                                {t.delete}
+                              </DropdownMenuItem>
+                            </HasPermission>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>

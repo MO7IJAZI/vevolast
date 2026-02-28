@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { HasPermission } from "@/components/permissions";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -11,10 +12,12 @@ import { GoalCard } from "@/components/goals/goal-card";
 import { AddGoalModal } from "@/components/goals/add-goal-modal";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import type { Goal, GoalFormData } from "@shared/schema";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function GoalsPage() {
   const { t } = useLanguage();
   const { toast } = useToast();
+  const { isAdmin, hasResourcePermission } = useAuth();
   
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
@@ -22,8 +25,10 @@ export default function GoalsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
 
+  const canGoals = isAdmin || hasResourcePermission("goals");
   const { data: goals = [], isLoading, error } = useQuery<Goal[]>({
     queryKey: ["/api/goals"],
+    enabled: canGoals,
   });
 
   const filteredGoals = useMemo(() => {
@@ -142,10 +147,12 @@ export default function GoalsPage() {
             {t("goals.subtitle")}
           </p>
         </div>
-        <Button onClick={handleOpenModal} data-testid="button-add-goal">
-          <Plus className="h-4 w-4 me-2" />
-          {t("goals.addGoal")}
-        </Button>
+        <HasPermission permission="goals:create">
+          <Button onClick={handleOpenModal} data-testid="button-add-goal">
+            <Plus className="h-4 w-4 me-2" />
+            {t("goals.addGoal")}
+          </Button>
+        </HasPermission>
       </div>
 
       <MonthYearSelector
@@ -184,14 +191,16 @@ export default function GoalsPage() {
             </div>
             <div className="text-center">
               <p className="text-muted-foreground">{t("goals.noGoals")}</p>
-              <Button
-                variant="ghost"
-                onClick={handleOpenModal}
-                className="mt-2 text-primary"
-                data-testid="button-add-first-goal"
-              >
-                {t("goals.addFirstGoal")}
-              </Button>
+              <HasPermission permission="goals:create">
+                <Button
+                  variant="ghost"
+                  onClick={handleOpenModal}
+                  className="mt-2 text-primary"
+                  data-testid="button-add-first-goal"
+                >
+                  {t("goals.addFirstGoal")}
+                </Button>
+              </HasPermission>
             </div>
           </div>
         ) : (

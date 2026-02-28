@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { DateInput } from "@/components/ui/date-picker";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useData } from "@/contexts/DataContext";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { CalendarEvent, EventType, EventStatus, EventPriority } from "@shared/schema";
@@ -404,6 +405,9 @@ export default function CalendarPage() {
   const { clients, employees } = useData();
   const [, navigate] = useLocation();
   const t = content[language];
+  const { isAdmin, hasResourcePermission, hasPermission } = useAuth();
+  const canFinance = isAdmin || hasResourcePermission("finance");
+  const canManageSalaries = isAdmin || hasPermission("employees:manage_salaries");
 
   // State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -433,25 +437,32 @@ export default function CalendarPage() {
   // Fetch salaries and payments for system event generation
   const { data: salaries = [] } = useQuery({
     queryKey: ["/api/employee-salaries"],
+    enabled: canManageSalaries,
   });
 
   const now = new Date();
   const { data: clientPayments = [] } = useQuery({
     queryKey: ["/api/client-payments", { month: now.getMonth() + 1, year: now.getFullYear() }],
     queryFn: async () => {
-      const res = await fetch(`/api/client-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`);
+      const res = await fetch(`/api/client-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`, {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("Failed to fetch client payments");
       return res.json();
     },
+    enabled: canFinance,
   });
 
   const { data: payrollPayments = [] } = useQuery({
     queryKey: ["/api/payroll-payments", { month: now.getMonth() + 1, year: now.getFullYear() }],
     queryFn: async () => {
-      const res = await fetch(`/api/payroll-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`);
+      const res = await fetch(`/api/payroll-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`, {
+        credentials: "include",
+      });
       if (!res.ok) throw new Error("Failed to fetch payroll payments");
       return res.json();
     },
+    enabled: canFinance,
   });
 
   // Generate system events from real data

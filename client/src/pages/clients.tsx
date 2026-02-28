@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
+import { HasPermission } from "@/components/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -1933,16 +1934,20 @@ export default function ClientsPage() {
               </Select>
             )}
             {mainTab === "clients" && (
-              <Button onClick={() => openClientModal()} data-testid="button-add-client">
-                <Plus className="h-4 w-4 me-2" />
-                {t.addClient}
-              </Button>
+              <HasPermission permission="clients:create">
+                <Button onClick={() => openClientModal()} data-testid="button-add-client">
+                  <Plus className="h-4 w-4 me-2" />
+                  {t.addClient}
+                </Button>
+              </HasPermission>
             )}
             {mainTab === "leads" && (
-              <Button onClick={() => openLeadModal()} data-testid="button-add-lead">
-                <Plus className="h-4 w-4 me-2" />
-                {t.addLead}
-              </Button>
+              <HasPermission permission="leads:create">
+                <Button onClick={() => openLeadModal()} data-testid="button-add-lead">
+                  <Plus className="h-4 w-4 me-2" />
+                  {t.addLead}
+                </Button>
+              </HasPermission>
             )}
           </div>
         </div>
@@ -1993,10 +1998,12 @@ export default function ClientsPage() {
                   }
                 </p>
                 {!showArchived && (
-                  <Button onClick={() => openClientModal()} data-testid="button-add-first-client">
-                    <Plus className="h-4 w-4 me-2" />
-                    {t.addFirstClient}
-                  </Button>
+                  <HasPermission permission="clients:create">
+                    <Button onClick={() => openClientModal()} data-testid="button-add-first-client">
+                      <Plus className="h-4 w-4 me-2" />
+                      {t.addFirstClient}
+                    </Button>
+                  </HasPermission>
                 )}
               </CardContent>
             </Card>
@@ -2171,15 +2178,17 @@ export default function ClientsPage() {
                         <CardContent className="pt-0">
                           <div className="flex items-center justify-between mb-3">
                             <h4 className="font-medium text-sm">{t.purchasedServices}</h4>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => openServiceModal(client.id)}
-                              data-testid={`button-add-service-${client.id}`}
-                            >
-                              <Plus className="h-4 w-4 me-1" />
-                              {t.addService}
-                            </Button>
+                            <HasPermission permission="clients:edit">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openServiceModal(client.id)}
+                                data-testid={`button-add-service-${client.id}`}
+                              >
+                                <Plus className="h-4 w-4 me-1" />
+                                {t.addService}
+                              </Button>
+                            </HasPermission>
                           </div>
 
                           {services.length === 0 ? (
@@ -2213,10 +2222,12 @@ export default function ClientsPage() {
                 <p className="text-muted-foreground text-center max-w-md mb-6">
                   {t.emptyLeadsSubtitle}
                 </p>
-                <Button onClick={() => openLeadModal()} data-testid="button-add-first-lead">
-                  <Plus className="h-4 w-4 me-2" />
-                  {t.addFirstLead}
-                </Button>
+                <HasPermission permission="leads:create">
+                  <Button onClick={() => openLeadModal()} data-testid="button-add-first-lead">
+                    <Plus className="h-4 w-4 me-2" />
+                    {t.addFirstLead}
+                  </Button>
+                </HasPermission>
               </CardContent>
             </Card>
           ) : (

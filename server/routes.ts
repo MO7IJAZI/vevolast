@@ -41,7 +41,7 @@ export async function registerRoutes(
   // Goals API
   
   // Get all goals
-  app.get("/api/goals", requirePermission("view_goals"), async (req, res) => {
+  app.get("/api/goals", requirePermission("goals", "view"), async (req, res) => {
     try {
       const goals = await storage.getGoals();
       res.json(goals);
@@ -52,7 +52,7 @@ export async function registerRoutes(
   });
 
   // Get single goal
-  app.get("/api/goals/:id", requirePermission("view_goals"), async (req, res) => {
+  app.get("/api/goals/:id", requirePermission("goals", "view"), async (req, res) => {
     try {
       const goal = await storage.getGoal(req.params.id);
       if (!goal) {
@@ -66,7 +66,7 @@ export async function registerRoutes(
   });
 
   // Create goal
-  app.post("/api/goals", requirePermission("edit_goals"), async (req, res) => {
+  app.post("/api/goals", requirePermission("goals", "create"), async (req, res) => {
     try {
       const validated = goalFormSchema.parse(req.body);
       const goal = await storage.createGoal(validated as any);
@@ -81,7 +81,7 @@ export async function registerRoutes(
   });
 
   // Update goal
-  app.patch("/api/goals/:id", requirePermission("edit_goals"), async (req, res) => {
+  app.patch("/api/goals/:id", requirePermission("goals", "edit"), async (req, res) => {
     try {
       const validated = goalFormSchema.partial().parse(req.body);
       const goal = await storage.updateGoal(req.params.id, validated as any);
@@ -99,7 +99,7 @@ export async function registerRoutes(
   });
 
   // Delete goal
-  app.delete("/api/goals/:id", requirePermission("edit_goals"), async (req, res) => {
+  app.delete("/api/goals/:id", requirePermission("goals", "delete"), async (req, res) => {
     try {
       const deleted = await storage.deleteGoal(req.params.id);
       if (!deleted) {
@@ -113,7 +113,7 @@ export async function registerRoutes(
   });
 
   // Clients API
-  app.get("/api/clients", requirePermission("view_clients", "view_leads"), async (req, res) => {
+  app.get("/api/clients", requirePermission("clients", "view"), async (req, res) => {
     try {
       const clients = await storage.getClients();
       res.json(clients);
@@ -123,7 +123,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/clients/:id", requirePermission("view_clients", "view_leads"), async (req, res) => {
+  app.get("/api/clients/:id", requirePermission("clients", "view"), async (req, res) => {
     try {
       const client = await storage.getClient(req.params.id);
       if (!client) {
@@ -136,7 +136,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/clients", requirePermission("edit_clients"), async (req, res) => {
+  app.post("/api/clients", requirePermission("clients", "create"), async (req, res) => {
     try {
       const validated = insertClientSchema.parse(req.body);
       const client = await storage.createClient(validated);
@@ -150,7 +150,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/clients-with-service", requirePermission("edit_clients"), async (req, res) => {
+  app.post("/api/clients-with-service", requirePermission("clients", "create"), async (req, res) => {
     try {
       const { client, service } = req.body;
       const validatedClient = insertClientSchema.parse(client);
@@ -168,7 +168,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/clients/:id", requirePermission("edit_clients"), async (req, res) => {
+  app.patch("/api/clients/:id", requirePermission("clients", "edit"), async (req, res) => {
     try {
       const validated = insertClientSchema.partial().parse(req.body);
       const client = await storage.updateClient(req.params.id, validated);
@@ -185,7 +185,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/clients/:id/convert", requirePermission("edit_clients"), async (req, res) => {
+  app.post("/api/clients/:id/convert", requirePermission("clients", "edit"), async (req, res) => {
     try {
       const lead = await storage.convertClientToLead(req.params.id);
       res.status(201).json(lead);
@@ -195,7 +195,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/clients/:id", requirePermission("archive_clients"), async (req, res) => {
+  app.delete("/api/clients/:id", requirePermission("clients", "delete"), async (req, res) => {
     try {
       const client = await storage.getClient(req.params.id);
       if (!client) {
@@ -294,7 +294,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/main-packages", requirePermission("create_packages"), async (req, res) => {
+  app.post("/api/main-packages", requirePermission("packages", "create"), async (req, res) => {
     try {
       const validated = insertMainPackageSchema.parse(req.body);
       const pkg = await storage.createMainPackage(validated);
@@ -308,7 +308,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/main-packages/:id", requirePermission("edit_packages"), async (req, res) => {
+  app.patch("/api/main-packages/:id", requirePermission("packages", "edit"), async (req, res) => {
     try {
       const validated = insertMainPackageSchema.partial().parse(req.body);
       const pkg = await storage.updateMainPackage(req.params.id as string, validated);
@@ -325,7 +325,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/main-packages/:id", requirePermission("edit_packages"), async (req, res) => {
+  app.delete("/api/main-packages/:id", requirePermission("packages", "delete"), async (req, res) => {
     try {
       const deleted = await storage.deleteMainPackage(req.params.id as string);
       if (!deleted) {
@@ -408,7 +408,7 @@ export async function registerRoutes(
 
   // ========== INVOICES API ROUTES ==========
 
-  app.get("/api/invoices", requireAdmin, async (req, res) => {
+  app.get("/api/invoices", requirePermission("finance", "view"), async (req, res) => {
     try {
       const { clientId } = req.query;
       const invoices = await storage.getInvoices(clientId as string);
@@ -419,7 +419,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/invoices/:id", requireAdmin, async (req, res) => {
+  app.get("/api/invoices/:id", requirePermission("finance", "view"), async (req, res) => {
     try {
       const invoice = await storage.getInvoice(req.params.id as string);
       if (!invoice) {
@@ -432,7 +432,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/invoices", requireAdmin, async (req, res) => {
+  app.post("/api/invoices", requirePermission("finance", "create"), async (req, res) => {
     try {
       const validated = insertInvoiceSchema.parse(req.body);
       const invoice = await storage.createInvoice(validated);
@@ -446,7 +446,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/invoices/:id", requireAdmin, async (req, res) => {
+  app.patch("/api/invoices/:id", requirePermission("finance", "edit"), async (req, res) => {
     try {
       const validated = insertInvoiceSchema.partial().parse(req.body);
       const invoice = await storage.updateInvoice(req.params.id as string, validated);
@@ -463,7 +463,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/invoices/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/invoices/:id", requirePermission("finance", "delete"), async (req, res) => {
     try {
       const deleted = await storage.deleteInvoice(req.params.id as string);
       if (!deleted) {
@@ -521,7 +521,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/employees", requireAdmin, async (req, res) => {
+  app.post("/api/employees", requirePermission("employees", "create"), async (req, res) => {
     try {
       const validated = insertEmployeeSchema.parse(req.body);
       const employee = await storage.createEmployee(validated);
@@ -543,15 +543,16 @@ export async function registerRoutes(
       }
 
       const isAdmin = req.session?.userRole === "admin";
+      const hasPermission = req.session?.userPermissions?.includes("employees:edit");
       const isSelf = req.session?.userEmail === employee.email;
 
-      if (!isAdmin && !isSelf) {
-        return res.status(403).json({ error: "Forbidden: You can only edit your own profile" });
+      if (!isAdmin && !hasPermission && !isSelf) {
+        return res.status(403).json({ error: "Forbidden: You do not have permission to edit employees" });
       }
 
-      // If not admin (self-update), prevent updating sensitive fields
+      // If not admin/permission (self-update), prevent updating sensitive fields
       let dataToUpdate = req.body;
-      if (!isAdmin) {
+      if (!isAdmin && !hasPermission) {
         // Remove sensitive fields from the update payload
         const { 
           salaryType, salaryAmount, rate, rateType, salaryCurrency, salaryNotes, // Salary info
@@ -566,7 +567,7 @@ export async function registerRoutes(
       const updatedEmployee = await storage.updateEmployee(req.params.id, validated);
       
       // If returning the updated object to non-admin, strip sensitive fields again
-      if (!isAdmin) {
+      if (!isAdmin && !hasPermission) {
         const { salaryType, salaryAmount, rate, rateType, salaryCurrency, salaryNotes, ...safeEmployee } = updatedEmployee!;
         return res.json(safeEmployee);
       }
@@ -581,7 +582,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/employees/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/employees/:id", requirePermission("employees", "delete"), async (req, res) => {
     try {
       const deleted = await storage.deleteEmployee(req.params.id as string);
       if (!deleted) {
@@ -595,7 +596,7 @@ export async function registerRoutes(
   });
 
   // Leads API
-  app.get("/api/leads", requirePermission("view_leads"), async (req, res) => {
+  app.get("/api/leads", requirePermission("leads", "view"), async (req, res) => {
     try {
       const leads = await storage.getLeads();
       res.json(leads);
@@ -605,7 +606,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/leads/:id", requirePermission("view_leads"), async (req, res) => {
+  app.get("/api/leads/:id", requirePermission("leads", "view"), async (req, res) => {
     try {
       const lead = await storage.getLead(req.params.id);
       if (!lead) {
@@ -618,7 +619,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/leads", requirePermission("edit_leads"), async (req, res) => {
+  app.post("/api/leads", requirePermission("leads", "create"), async (req, res) => {
     try {
       const validated = insertLeadSchema.parse(req.body);
       const lead = await storage.createLead(validated);
@@ -632,7 +633,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/leads/:id", requirePermission("edit_leads"), async (req, res) => {
+  app.patch("/api/leads/:id", requirePermission("leads", "edit"), async (req, res) => {
     try {
       const validated = insertLeadSchema.partial().parse(req.body);
       const lead = await storage.updateLead(req.params.id, validated);
@@ -649,7 +650,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/leads/:id", requirePermission("edit_leads"), async (req, res) => {
+  app.delete("/api/leads/:id", requirePermission("leads", "delete"), async (req, res) => {
     try {
       const deleted = await storage.deleteLead(req.params.id);
       if (!deleted) {
@@ -662,7 +663,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/leads/:id/convert", requirePermission("edit_leads"), async (req, res) => {
+  app.post("/api/leads/:id/convert", requirePermission("leads", "convert"), async (req, res) => {
     try {
       const client = await storage.convertLeadToClient(req.params.id);
       res.status(201).json(client);
@@ -750,7 +751,7 @@ export async function registerRoutes(
   });
 
   // Get all transactions (with optional filters)
-  app.get("/api/transactions", requirePermission("view_finance"), async (req, res) => {
+  app.get("/api/transactions", requirePermission("finance", "view"), async (req, res) => {
     try {
       const { type, month, year, clientId, employeeId } = req.query;
       const transactions = await storage.getTransactions({
@@ -768,7 +769,7 @@ export async function registerRoutes(
   });
 
   // Create transaction
-  app.post("/api/transactions", requirePermission("edit_finance"), async (req, res) => {
+  app.post("/api/transactions", requirePermission("finance", "create"), async (req, res) => {
     try {
       const validated = insertTransactionSchema.parse(req.body);
       const transaction = await storage.createTransaction(validated);
@@ -783,7 +784,7 @@ export async function registerRoutes(
   });
 
   // Update transaction
-  app.patch("/api/transactions/:id", requirePermission("edit_finance"), async (req, res) => {
+  app.patch("/api/transactions/:id", requirePermission("finance", "edit"), async (req, res) => {
     try {
       const validated = insertTransactionSchema.partial().parse(req.body);
       const updated = await storage.updateTransaction(req.params.id as string, validated);
@@ -801,7 +802,7 @@ export async function registerRoutes(
   });
 
   // Delete transaction
-  app.delete("/api/transactions/:id", requirePermission("edit_finance"), async (req, res) => {
+  app.delete("/api/transactions/:id", requirePermission("finance", "delete"), async (req, res) => {
     try {
       const deleted = await storage.deleteTransaction(req.params.id as string);
       if (!deleted) {
@@ -815,7 +816,7 @@ export async function registerRoutes(
   });
 
   // Get client payments
-  app.get("/api/client-payments", requirePermission("view_finance"), async (req, res) => {
+  app.get("/api/client-payments", requirePermission("finance", "view"), async (req, res) => {
     try {
       const { clientId, month, year } = req.query;
       const payments = await storage.getClientPayments({
@@ -831,7 +832,7 @@ export async function registerRoutes(
   });
 
   // Create client payment (also creates income transaction)
-  app.post("/api/client-payments", requirePermission("create_invoices"), async (req, res) => {
+  app.post("/api/client-payments", requirePermission("finance", "create"), async (req, res) => {
     try {
       const validated = insertClientPaymentSchema.parse(req.body);
       const payment = await storage.createClientPayment(validated);
@@ -863,7 +864,7 @@ export async function registerRoutes(
   });
 
   // Update client payment
-  app.patch("/api/client-payments/:id", requirePermission("edit_finance"), async (req, res) => {
+  app.patch("/api/client-payments/:id", requirePermission("finance", "edit"), async (req, res) => {
     try {
       const validated = insertClientPaymentSchema.partial().parse(req.body);
       const updated = await storage.updateClientPayment(req.params.id as string, validated);
@@ -881,7 +882,7 @@ export async function registerRoutes(
   });
 
   // Delete client payment
-  app.delete("/api/client-payments/:id", requirePermission("edit_finance"), async (req, res) => {
+  app.delete("/api/client-payments/:id", requirePermission("finance", "delete"), async (req, res) => {
     try {
       const deleted = await storage.deleteClientPayment(req.params.id as string);
       if (!deleted) {
@@ -895,7 +896,7 @@ export async function registerRoutes(
   });
 
   // Get payroll payments
-  app.get("/api/payroll-payments", requirePermission("view_finance"), async (req, res) => {
+  app.get("/api/payroll-payments", requirePermission("finance", "view"), async (req, res) => {
     try {
       const { employeeId, month, year } = req.query;
       const payments = await storage.getPayrollPayments({
@@ -911,7 +912,7 @@ export async function registerRoutes(
   });
 
   // Create payroll payment (also creates expense transaction)
-  app.post("/api/payroll-payments", requirePermission("edit_finance"), async (req, res) => {
+  app.post("/api/payroll-payments", requirePermission("finance", "create"), async (req, res) => {
     try {
       const validated = insertPayrollPaymentSchema.parse(req.body);
       const payment = await storage.createPayrollPayment(validated);
@@ -926,7 +927,7 @@ export async function registerRoutes(
   });
 
   // Update payroll payment
-  app.patch("/api/payroll-payments/:id", requirePermission("edit_finance"), async (req, res) => {
+  app.patch("/api/payroll-payments/:id", requirePermission("finance", "edit"), async (req, res) => {
     try {
       const validated = insertPayrollPaymentSchema.partial().parse(req.body);
       const updated = await storage.updatePayrollPayment(req.params.id as string, validated);
@@ -944,7 +945,7 @@ export async function registerRoutes(
   });
 
   // Delete payroll payment
-  app.delete("/api/payroll-payments/:id", requirePermission("edit_finance"), async (req, res) => {
+  app.delete("/api/payroll-payments/:id", requirePermission("finance", "delete"), async (req, res) => {
     try {
       const deleted = await storage.deletePayrollPayment(req.params.id as string);
       if (!deleted) {
@@ -958,7 +959,7 @@ export async function registerRoutes(
   });
 
   // Get employee salaries
-  app.get("/api/employee-salaries", requirePermission("edit_employees"), async (req, res) => {
+  app.get("/api/employee-salaries", requirePermission("employees", "manage_salaries"), async (req, res) => {
     try {
       const salaries = await storage.getEmployeeSalaries();
       res.json(salaries);
@@ -969,7 +970,7 @@ export async function registerRoutes(
   });
 
   // Get or create employee salary
-  app.get("/api/employee-salaries/:employeeId", requirePermission("edit_employees"), async (req, res) => {
+  app.get("/api/employee-salaries/:employeeId", requirePermission("employees", "manage_salaries"), async (req, res) => {
     try {
       const employeeId = Array.isArray(req.params.employeeId) ? req.params.employeeId[0] : req.params.employeeId;
       if (!employeeId) {
@@ -984,7 +985,7 @@ export async function registerRoutes(
   });
 
   // Update/create employee salary
-  app.put("/api/employee-salaries/:employeeId", requirePermission("edit_employees"), async (req, res) => {
+  app.put("/api/employee-salaries/:employeeId", requirePermission("employees", "manage_salaries"), async (req, res) => {
     try {
       const employeeId = Array.isArray(req.params.employeeId) ? req.params.employeeId[0] : req.params.employeeId;
       if (!employeeId) {
@@ -1205,17 +1206,17 @@ export async function registerRoutes(
       const { employeeId, date, startDate, endDate, status } = req.query;
       
       // Access Control:
-      // If user is NOT admin/manager, they can ONLY see their own sessions.
+      // If user is NOT admin, they can ONLY see their own sessions.
       // We force the employeeId filter to be their own ID.
       let targetEmployeeId = employeeId as string;
       
-      // Cast req to any to access user property added by passport/session
-      const user = (req as any).user;
-      const isAdminOrManager = user?.role === 'admin' || user?.role === 'manager';
+      const userRole = req.session?.userRole;
+      const isAdmin = userRole === 'admin';
+      const userId = req.session?.userId;
       
-      if (!isAdminOrManager && user) {
+      if (!isAdmin && userId) {
         // Force filter to current user
-        targetEmployeeId = user.id;
+        targetEmployeeId = userId;
       }
       
       const sessions = await storage.getWorkSessions({
@@ -1241,7 +1242,7 @@ export async function registerRoutes(
               name: user.name,
               nameEn: user.nameEn,
               email: user.email,
-              role: user.role,
+              role: "Admin", // Fallback role name since user.role is removed
               department: user.department || "admin",
               jobTitle: "admin",
               salaryType: "monthly",

@@ -1384,17 +1384,81 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateEmployee(id: string, employee: Partial<InsertEmployee>): Promise<Employee | undefined> {
-    await db
-      .update(employees)
-      .set({ ...employee, updatedAt: new Date() })
-      .where(eq(employees.id, id));
+    await db.transaction(async (tx) => {
+      // 1. Update Employee record
+      await tx
+        .update(employees)
+        .set({ ...employee, updatedAt: new Date() })
+        .where(eq(employees.id, id));
+
+      // Load the updated employee to get email for cross-sync
+      const [updatedEmp] = await tx.select().from(employees).where(eq(employees.id, id)).limit(1);
+
+      // 2. If roleId is updated, sync it to the User record(s)
+      if (employee.roleId) {
+        // 2.a Users linked by employeeId
+        const linkedUsers = await tx.select().from(users).where(eq(users.employeeId, id));
+        if (linkedUsers.length > 0) {
+          await tx.update(users)
+            .set({ roleId: employee.roleId })
+            .where(eq(users.employeeId, id));
+        }
+        // 2.b Users linked by email (older accounts may not have employeeId set)
+        if (updatedEmp?.email) {
+          await tx.update(users)
+            .set({ roleId: employee.roleId })
+            .where(eq(users.email, updatedEmp.email));
+        }
+      }
+    });
+
     const result = await db.select().from(employees).where(eq(employees.id, id));
     return result[0];
   }
 
   async deleteEmployee(id: string): Promise<boolean> {
-    await db.delete(employees).where(eq(employees.id, id));
-    return true;
+    return await db.transaction(async (tx) => {
+      // 1. Delete Payroll Payments and related Transactions
+      const payments = await tx.select({ id: payrollPayments.id }).from(payrollPayments).where(eq(payrollPayments.employeeId, id));
+      const paymentIds = payments.map(p => p.id);
+      
+      if (paymentIds.length > 0) {
+        await tx.delete(transactions).where(
+          and(
+            eq(transactions.relatedType, "payroll_payment"),
+            inArray(transactions.relatedId, paymentIds)
+          )
+        );
+        await tx.delete(payrollPayments).where(inArray(payrollPayments.id, paymentIds));
+      }
+
+      // 2. Delete Salaries
+      await tx.delete(employeeSalaries).where(eq(employeeSalaries.employeeId, id));
+
+      // 3. Delete Work Sessions
+      await tx.delete(workSessions).where(eq(workSessions.employeeId, id));
+
+      // 4. Delete Calendar Events
+      await tx.delete(calendarEvents).where(eq(calendarEvents.employeeId, id));
+
+      // 5. Delete Users (Hard Delete as requested)
+      // First, we need to handle notifications or other user-related data if any
+      const employeeUsers = await tx.select({ id: users.id }).from(users).where(eq(users.employeeId, id));
+      const userIds = employeeUsers.map(u => u.id);
+
+      if (userIds.length > 0) {
+        await tx.delete(notifications).where(inArray(notifications.userId, userIds));
+        await tx.delete(users).where(inArray(users.id, userIds));
+      }
+
+      // 6. Unlink Client Services (Sales Rep)
+      await tx.update(clientServices).set({ salesEmployeeId: null }).where(eq(clientServices.salesEmployeeId, id));
+
+      // 7. Delete Employee
+      await tx.delete(employees).where(eq(employees.id, id));
+      
+      return true;
+    });
   }
 
   // ========== SYSTEM SETTINGS METHODS ==========

@@ -276,6 +276,73 @@ export default function WorkTrackingPage() {
       });
   }, [clients, searchQuery, packageFilter, activeTab, monthFilter]);
 
+  // Prepare a base list for tab counts (apply search & package filters, but NOT activeTab filtering)
+  const baseFilteredClientsForCounts: ClientWithServices[] = useMemo(() => {
+    return clients
+      .filter(client => client.status !== "archived" && Array.isArray(client.services) && client.services.length > 0)
+      .map(client => {
+        const now = new Date();
+        const services = Array.isArray(client.services) ? client.services : [];
+        const servicesWithStatus = services.map(service => {
+          let computedStatus = service.status;
+          if (service.status !== "completed" && service.status !== "on_hold") {
+            const dueDate = new Date(service.dueDate);
+            if (dueDate < now) {
+              computedStatus = "delayed";
+            }
+          }
+          return { ...service, status: computedStatus };
+        });
+        const activeServices = servicesWithStatus.filter(s => s.status !== "completed");
+        const completedServices = servicesWithStatus.filter(s => s.status === "completed");
+        const overduePackages = activeServices.filter(s => s.status === "delayed").length;
+        const nextDeadline = activeServices
+          .filter(s => s.dueDate)
+          .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())[0]?.dueDate || null;
+        return {
+          client,
+          activeServices,
+          completedServices,
+          totalActivePackages: activeServices.length,
+          overduePackages,
+          nextDeadline,
+        };
+      })
+      .filter(c => {
+        if (searchQuery) {
+          const query = searchQuery.toLowerCase();
+          const matchesClient = c.client.name.toLowerCase().includes(query) ||
+            c.client.company?.toLowerCase().includes(query) ||
+            (c.client as ConfirmedClient & { nameEn?: string }).nameEn?.toLowerCase().includes(query);
+          const matchesService = [...c.activeServices, ...c.completedServices].some(s =>
+            s.serviceName.toLowerCase().includes(query) ||
+            s.serviceNameEn?.toLowerCase().includes(query)
+          );
+          if (!matchesClient && !matchesService) return false;
+        }
+        if (packageFilter !== "all") {
+          const hasPackage = [...c.activeServices, ...c.completedServices].some(s =>
+            s.mainPackageId === packageFilter
+          );
+          if (!hasPackage) return false;
+        }
+        return true;
+      });
+  }, [clients, searchQuery, packageFilter]);
+
+  const activeCount = useMemo(
+    () => baseFilteredClientsForCounts.filter(c => c.activeServices.length > 0).length,
+    [baseFilteredClientsForCounts]
+  );
+  const completedCount = useMemo(
+    () =>
+      baseFilteredClientsForCounts.filter(c =>
+        c.completedServices.length > 0 &&
+        (monthFilter === "all" || c.completedServices.some(s => s.completedDate?.startsWith(monthFilter)))
+      ).length,
+    [baseFilteredClientsForCounts, monthFilter]
+  );
+
   // Calculate stats
   const stats = useMemo(() => {
     const now = new Date();
@@ -867,10 +934,15 @@ export default function WorkTrackingPage() {
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <TabsList>
               <TabsTrigger value="active" data-testid="tab-active">
-                {content.activeWorks} ({processedClients.filter(c => c.activeServices.length > 0).length})
+                {content.activeWorks} ({activeCount})
               </TabsTrigger>
               <TabsTrigger value="completed" data-testid="tab-completed">
-                {content.completedWorks} ({processedClients.filter(c => c.completedServices.length > 0).length})
+                {content.completedWorks} ({completedCount})
+                {monthFilter !== "all" && (
+                  <span className="ms-2 px-1.5 py-0.5 rounded bg-muted text-[10px] text-muted-foreground">
+                    {monthFilter}
+                  </span>
+                )}
               </TabsTrigger>
             </TabsList>
             

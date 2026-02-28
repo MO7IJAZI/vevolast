@@ -18,6 +18,7 @@ import ClientsPage from "@/pages/clients";
 import PackagesPage from "@/pages/packages";
 import InvoicesPage from "@/pages/invoices";
 import EmployeesPage from "@/pages/employees";
+import RolesPage from "@/pages/roles"; // Import RolesPage
 import CalendarPage from "@/pages/calendar";
 import FinancePage from "@/pages/finance";
 import SettingsPage from "@/pages/settings";
@@ -97,7 +98,7 @@ function PermissionGuard({
   permissions?: string[];
   children: React.ReactNode;
 }) {
-  const { hasAnyPermission, isAdmin } = useAuth();
+  const { hasAnyPermission, hasResourcePermission, isAdmin } = useAuth();
   
   // No permissions required or admin - allow access
   if (!permissions || permissions.length === 0 || isAdmin) {
@@ -106,6 +107,15 @@ function PermissionGuard({
   
   // Check if user has any of the required permissions
   if (hasAnyPermission(...permissions)) {
+    return <>{children}</>;
+  }
+  
+  // Fallback: if user has ANY permission on the same resource, allow viewing the page
+  // e.g., having "clients:create" should allow opening the Clients page
+  const resources = permissions
+    .map((p) => (typeof p === "string" && p.includes(":")) ? p.split(":")[0] : "")
+    .filter(Boolean);
+  if (resources.some((r) => hasResourcePermission(r))) {
     return <>{children}</>;
   }
   
@@ -125,53 +135,58 @@ function ProtectedRoutes() {
   return (
     <Switch>
       <Route path="/goals">
-        <PermissionGuard permissions={["view_goals"]}>
+        <PermissionGuard permissions={["goals:view"]}>
           <GoalsPage />
         </PermissionGuard>
       </Route>
       <Route path="/clients">
-        <PermissionGuard permissions={["view_clients", "view_leads"]}>
+        <PermissionGuard permissions={["clients:view", "leads:view"]}>
           <ClientsPage />
         </PermissionGuard>
       </Route>
       <Route path="/packages">
-        <PermissionGuard permissions={["create_packages", "edit_packages"]}>
+        <PermissionGuard permissions={["packages:create", "packages:edit"]}>
           <PackagesPage />
         </PermissionGuard>
       </Route>
       <Route path="/invoices">
-        <PermissionGuard permissions={["view_invoices", "create_invoices", "edit_invoices"]}>
+        <PermissionGuard permissions={["invoices:view", "invoices:create", "invoices:edit"]}>
           <InvoicesPage />
         </PermissionGuard>
       </Route>
       <Route path="/employees">
-        <PermissionGuard permissions={["view_employees"]}>
+        <PermissionGuard permissions={["employees:view"]}>
           <EmployeesPage />
+        </PermissionGuard>
+      </Route>
+      <Route path="/roles">
+        <PermissionGuard permissions={["roles:view"]}>
+          <RolesPage />
         </PermissionGuard>
       </Route>
       <Route path="/calendar" component={CalendarPage} />
       <Route path="/finance">
-        <PermissionGuard permissions={["view_finance"]}>
+        <PermissionGuard permissions={["finance:view"]}>
           <FinancePage />
         </PermissionGuard>
       </Route>
       <Route path="/settings">
-        <PermissionGuard permissions={["edit_finance"]}>
+        <PermissionGuard permissions={["settings:view"]}>
           <SettingsPage />
         </PermissionGuard>
       </Route>
       <Route path="/sales">
-        <PermissionGuard permissions={["view_clients", "edit_clients"]}>
+        <PermissionGuard permissions={["clients:view", "clients:edit"]}>
           <SalesPage />
         </PermissionGuard>
       </Route>
       <Route path="/work-tracking">
-        <PermissionGuard permissions={["view_clients", "edit_work_tracking"]}>
+        <PermissionGuard permissions={["clients:view", "work_tracking:edit"]}>
           <WorkTrackingPage />
         </PermissionGuard>
       </Route>
       <Route path="/work-sessions">
-        <PermissionGuard permissions={["view_employees", "edit_work_tracking"]}>
+        <PermissionGuard permissions={["employees:view", "work_tracking:edit"]}>
           <WorkSessionsPage />
         </PermissionGuard>
       </Route>

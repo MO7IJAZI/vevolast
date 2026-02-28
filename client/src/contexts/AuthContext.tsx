@@ -6,7 +6,8 @@ interface AuthUser {
   email: string;
   name: string;
   nameEn?: string;
-  role: string;
+  role: string; // This is now the role NAME
+  roleId?: string; // New field
   department?: string;
   permissions?: string[];
   isClientUser?: boolean;
@@ -18,6 +19,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   hasPermission: (permission: string) => boolean;
   hasAnyPermission: (...permissions: string[]) => boolean;
+  hasResourcePermission: (resource: string) => boolean;
   isAdmin: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
@@ -50,6 +52,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     checkAuth();
+    // Refresh on window focus
+    const onFocus = () => checkAuth();
+    window.addEventListener("focus", onFocus);
+    // Periodic refresh to pick up permission changes made by admin
+    const interval = setInterval(() => checkAuth(), 60000);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      clearInterval(interval);
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -87,6 +98,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isAdmin) return true;
     return permissions.some(p => user.permissions?.includes(p));
   };
+  
+  // Allow access if the user has any action on the given resource (e.g., goals:any)
+  const hasResourcePermission = (resource: string): boolean => {
+    if (!user) return false;
+    if (isAdmin) return true;
+    return (user.permissions || []).some((p) => typeof p === "string" && p.startsWith(`${resource}:`));
+  };
 
   return (
     <AuthContext.Provider
@@ -96,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAuthenticated: !!user,
         hasPermission,
         hasAnyPermission,
+        hasResourcePermission,
         isAdmin,
         login,
         logout,
