@@ -198,7 +198,8 @@ export default function SetPasswordPage() {
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="ps-10 pe-10"
+                    className="ps-10 pe-10 text-start"
+                    dir="ltr"
                     required
                     disabled={isLoading}
                     data-testid="input-password"
@@ -207,7 +208,7 @@ export default function SetPasswordPage() {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute end-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                    className="absolute end-0 top-0 h-full w-9 hover:bg-transparent"
                     onClick={() => setShowPassword(!showPassword)}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -232,7 +233,8 @@ export default function SetPasswordPage() {
                     type={showPassword ? "text" : "password"}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="ps-10"
+                    className="ps-10 text-start"
+                    dir="ltr"
                     required
                     disabled={isLoading}
                     data-testid="input-confirm-password"

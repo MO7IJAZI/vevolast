@@ -826,7 +826,7 @@ export default function WorkTrackingPage() {
     // Use the robust permission check logic
     const isUserAdmin = isAdmin || normalizeId(user?.role) === 'admin';
     const canEditDeliverables = checkUserPermission(service, client, user, isUserAdmin);
-    const canMarkCompleted = canEditDeliverables; // Anyone who can edit can mark completed
+    const canMarkCompleted = isUserAdmin; // Only admin can mark package as completed
 
     return (
       <div 
