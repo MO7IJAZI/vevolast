@@ -6,6 +6,7 @@ interface AuthUser {
   email: string;
   name: string;
   nameEn?: string;
+  profileImage?: string;
   role: string; // This is now the role NAME
   roleId?: string; // New field
   department?: string;

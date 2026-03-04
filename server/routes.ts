@@ -1055,7 +1055,7 @@ export async function registerRoutes(
   // ========== CALENDAR EVENTS API ROUTES ==========
 
   // Get all calendar events (with filters)
-  app.get("/api/calendar-events", async (req, res) => {
+  app.get("/api/calendar-events", requirePermission("calendar", "view"), async (req, res) => {
     try {
       const { startDate, endDate, eventType, status, clientId, employeeId } = req.query;
       const events = await storage.getCalendarEvents({
@@ -1074,7 +1074,7 @@ export async function registerRoutes(
   });
 
   // Get single calendar event
-  app.get("/api/calendar-events/:id", async (req, res) => {
+  app.get("/api/calendar-events/:id", requirePermission("calendar", "view"), async (req, res) => {
     try {
       const event = await storage.getCalendarEvent(req.params.id);
       if (!event) {
@@ -1088,7 +1088,7 @@ export async function registerRoutes(
   });
 
   // Create calendar event
-  app.post("/api/calendar-events", async (req, res) => {
+  app.post("/api/calendar-events", requirePermission("calendar", "create"), async (req, res) => {
     try {
       const validated = insertCalendarEventSchema.parse(req.body);
       const event = await storage.createCalendarEvent(validated);
@@ -1103,7 +1103,7 @@ export async function registerRoutes(
   });
 
   // Update calendar event
-  app.patch("/api/calendar-events/:id", async (req, res) => {
+  app.patch("/api/calendar-events/:id", requirePermission("calendar", "edit"), async (req, res) => {
     try {
       const validated = insertCalendarEventSchema.partial().parse(req.body);
       const event = await storage.updateCalendarEvent(req.params.id, validated);
@@ -1121,7 +1121,7 @@ export async function registerRoutes(
   });
 
   // Delete calendar event
-  app.delete("/api/calendar-events/:id", async (req, res) => {
+  app.delete("/api/calendar-events/:id", requirePermission("calendar", "delete"), async (req, res) => {
     try {
       const deleted = await storage.deleteCalendarEvent(req.params.id);
       if (!deleted) {
@@ -1275,6 +1275,7 @@ export async function registerRoutes(
               name: user.name,
               nameEn: user.nameEn,
               email: user.email,
+              profileImage: user.avatar,
               role: "Admin", // Fallback role name since user.role is removed
               department: user.department || "admin",
               jobTitle: "admin",

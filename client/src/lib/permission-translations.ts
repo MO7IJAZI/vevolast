@@ -10,6 +10,7 @@ export const resourceTranslations: Record<string, { ar: string; en: string }> = 
   employees: { ar: "الموظفين", en: "Employees" },
   work_tracking: { ar: "متابعة العمل", en: "Work Tracking" },
   reports: { ar: "التقارير", en: "Reports" },
+  calendar: { ar: "التقويم", en: "Calendar" },
   settings: { ar: "الإعدادات", en: "Settings" },
   roles: { ar: "الأدوار والصلاحيات", en: "Roles & Permissions" },
 };

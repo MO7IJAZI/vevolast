@@ -56,13 +56,24 @@ export function AvatarUpload({
   onImageChange,
   disabled = false,
 }: AvatarUploadProps) {
-  const [previewUrl, setPreviewUrl] = useState<string | undefined>(currentImage);
+  // Robust initial image handling
+  const getInitialPreview = (img?: string) => {
+    if (!img) return undefined;
+    if (img.startsWith("/") || img.startsWith("http") || img.startsWith("blob:")) {
+      return img;
+    }
+    return `/objects/uploads/${img}`;
+  };
+
+  const [previewUrl, setPreviewUrl] = useState<string | undefined>(getInitialPreview(currentImage));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   const { uploadFile, isUploading } = useUpload({
     onSuccess: (response) => {
       const objectPath = response.objectPath;
       onImageChange(objectPath);
+      // Ensure the preview uses the full URL for display if needed
+      setPreviewUrl(objectPath);
       toast({
         title: "Image uploaded",
         description: "Profile picture has been updated successfully.",
@@ -74,7 +85,7 @@ export function AvatarUpload({
         description: error.message,
         variant: "destructive",
       });
-      setPreviewUrl(currentImage);
+      setPreviewUrl(getInitialPreview(currentImage));
     },
   });
 

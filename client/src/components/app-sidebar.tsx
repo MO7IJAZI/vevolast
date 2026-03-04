@@ -46,9 +46,9 @@ const menuItems = [
   { icon: UserCircle, path: "/employees", labelKey: "nav.employees", permissions: ["employees:view"] },
   { icon: Shield, path: "/roles", labelKey: "nav.roles", permissions: ["roles:view"] },
   { icon: TrendingUp, path: "/sales", labelKey: "nav.sales", permissions: ["clients:view", "clients:edit"] },
-  { icon: Calendar, path: "/calendar", labelKey: "nav.calendar", permissions: [] },
+  { icon: Calendar, path: "/calendar", labelKey: "nav.calendar", permissions: ["calendar:view"] },
   { icon: DollarSign, path: "/finance", labelKey: "nav.finance", permissions: ["finance:view"] },
-  { icon: Settings, path: "/settings", labelKey: "nav.settings", permissions: ["settings:view"] },
+  { icon: Settings, path: "/settings", labelKey: "nav.settings", permissions: [] },
 ];
 
 export function AppSidebar() {

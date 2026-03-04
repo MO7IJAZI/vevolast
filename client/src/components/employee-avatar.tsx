@@ -64,11 +64,18 @@ export function EmployeeAvatar({
   const initials = getInitials(name, nameEn);
   const colorClass = stringToColor(name || nameEn || "");
   
+  // Robust image URL handling
+  const imageUrl = profileImage 
+    ? (profileImage.startsWith("/") || profileImage.startsWith("http") 
+        ? profileImage 
+        : `/objects/uploads/${profileImage}`) 
+    : undefined;
+  
   return (
     <Avatar className={cn(sizeClasses[size], "flex-shrink-0", className)} data-testid={`avatar-${name?.replace(/\s+/g, '-').toLowerCase()}`}>
-      {profileImage && (
+      {imageUrl && (
         <AvatarImage 
-          src={profileImage} 
+          src={imageUrl} 
           alt={name || nameEn} 
           className="object-cover"
         />

@@ -1303,3 +1303,107 @@
 2026-03-04T00:25:03.492Z - Setting up Vite development server (Development Mode)
 2026-03-04T00:25:03.905Z - Vite setup complete
 2026-03-04T00:25:03.907Z - serving on port 5000
+2026-03-04T15:12:45.535Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-04T15:12:45.538Z - Express and HTTP server initialized
+2026-03-04T15:12:45.540Z - Environment: development
+2026-03-04T15:12:45.541Z - Starting initialization sequence...
+2026-03-04T15:12:45.542Z - Testing database connection...
+2026-03-04T15:12:45.584Z - Database connection successful
+2026-03-04T15:12:45.591Z - Seeding admin user...
+2026-03-04T15:12:45.668Z - Admin user seeding checked
+2026-03-04T15:12:45.669Z - Registering routes...
+2026-03-04T15:12:45.671Z - Routes registered
+2026-03-04T15:12:45.672Z - Setting up Vite development server (Development Mode)
+2026-03-04T15:12:46.204Z - Vite setup complete
+2026-03-04T15:12:46.207Z - serving on port 5000
+2026-03-04T15:22:15.359Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-04T15:22:15.362Z - Express and HTTP server initialized
+2026-03-04T15:22:15.364Z - Environment: development
+2026-03-04T15:22:15.367Z - Starting initialization sequence...
+2026-03-04T15:22:15.368Z - Testing database connection...
+2026-03-04T15:22:15.397Z - Database connection successful
+2026-03-04T15:22:15.403Z - Seeding admin user...
+2026-03-04T15:22:15.424Z - Admin user seeding checked
+2026-03-04T15:22:15.425Z - Registering routes...
+2026-03-04T15:22:15.427Z - Routes registered
+2026-03-04T15:22:15.428Z - Setting up Vite development server (Development Mode)
+2026-03-04T15:22:15.787Z - Vite setup complete
+2026-03-04T15:22:15.789Z - serving on port 5000
+2026-03-04T15:30:34.709Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-04T15:30:34.711Z - Express and HTTP server initialized
+2026-03-04T15:30:34.714Z - Environment: development
+2026-03-04T15:30:34.715Z - Starting initialization sequence...
+2026-03-04T15:30:34.716Z - Testing database connection...
+2026-03-04T15:30:34.741Z - Database connection successful
+2026-03-04T15:30:34.746Z - Seeding admin user...
+2026-03-04T15:30:34.767Z - Admin user seeding checked
+2026-03-04T15:30:34.768Z - Registering routes...
+2026-03-04T15:30:34.770Z - Routes registered
+2026-03-04T15:30:34.770Z - Setting up Vite development server (Development Mode)
+2026-03-04T15:30:35.184Z - Vite setup complete
+2026-03-04T15:30:35.187Z - serving on port 5000
+2026-03-04T16:07:40.982Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-04T16:07:40.985Z - Express and HTTP server initialized
+2026-03-04T16:07:40.987Z - Environment: development
+2026-03-04T16:07:40.989Z - Starting initialization sequence...
+2026-03-04T16:07:40.989Z - Testing database connection...
+2026-03-04T16:07:41.012Z - Database connection successful
+2026-03-04T16:07:41.016Z - Seeding admin user...
+2026-03-04T16:07:41.035Z - Admin user seeding checked
+2026-03-04T16:07:41.036Z - Registering routes...
+2026-03-04T16:07:41.038Z - Routes registered
+2026-03-04T16:07:41.039Z - Setting up Vite development server (Development Mode)
+2026-03-04T16:07:41.442Z - Vite setup complete
+2026-03-04T16:07:41.445Z - serving on port 5000
+2026-03-04T16:16:42.934Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-04T16:16:42.937Z - Express and HTTP server initialized
+2026-03-04T16:16:42.939Z - Environment: development
+2026-03-04T16:16:42.940Z - Starting initialization sequence...
+2026-03-04T16:16:42.941Z - Testing database connection...
+2026-03-04T16:16:42.968Z - Database connection successful
+2026-03-04T16:16:42.973Z - Seeding admin user...
+2026-03-04T16:16:42.992Z - Admin user seeding checked
+2026-03-04T16:16:42.992Z - Registering routes...
+2026-03-04T16:16:42.995Z - Routes registered
+2026-03-04T16:16:42.995Z - Setting up Vite development server (Development Mode)
+2026-03-04T16:16:43.347Z - Vite setup complete
+2026-03-04T16:16:43.350Z - serving on port 5000
+2026-03-04T16:27:56.657Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-04T16:27:56.660Z - Express and HTTP server initialized
+2026-03-04T16:27:56.662Z - Environment: development
+2026-03-04T16:27:56.664Z - Starting initialization sequence...
+2026-03-04T16:27:56.664Z - Testing database connection...
+2026-03-04T16:27:56.689Z - Database connection successful
+2026-03-04T16:27:56.694Z - Seeding admin user...
+2026-03-04T16:27:56.714Z - Admin user seeding checked
+2026-03-04T16:27:56.715Z - Registering routes...
+2026-03-04T16:27:56.717Z - Routes registered
+2026-03-04T16:27:56.717Z - Setting up Vite development server (Development Mode)
+2026-03-04T16:27:57.081Z - Vite setup complete
+2026-03-04T16:27:57.084Z - serving on port 5000
+2026-03-04T18:18:59.487Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-04T18:18:59.492Z - Express and HTTP server initialized
+2026-03-04T18:18:59.495Z - Environment: development
+2026-03-04T18:18:59.498Z - Starting initialization sequence...
+2026-03-04T18:18:59.499Z - Testing database connection...
+2026-03-04T18:18:59.542Z - Database connection successful
+2026-03-04T18:18:59.551Z - Seeding admin user...
+2026-03-04T18:18:59.594Z - Admin user seeding checked
+2026-03-04T18:18:59.595Z - Registering routes...
+2026-03-04T18:18:59.600Z - Routes registered
+2026-03-04T18:18:59.602Z - Setting up Vite development server (Development Mode)
+2026-03-04T18:19:00.267Z - Vite setup complete
+2026-03-04T18:19:00.271Z - serving on port 5000
+2026-03-04T18:41:00.148Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-04T18:41:00.150Z - Express and HTTP server initialized
+2026-03-04T18:41:00.152Z - Environment: development
+2026-03-04T18:41:00.154Z - Starting initialization sequence...
+2026-03-04T18:41:00.154Z - Testing database connection...
+2026-03-04T18:41:00.178Z - Database connection successful
+2026-03-04T18:41:00.182Z - Seeding admin user...
+2026-03-04T18:41:00.200Z - Admin user seeding checked
+2026-03-04T18:41:00.201Z - Registering routes...
+2026-03-04T18:41:00.203Z - Routes registered
+2026-03-04T18:41:00.204Z - Setting up Vite development server (Development Mode)
+2026-03-04T18:41:00.567Z - Vite setup complete
+2026-03-04T18:41:00.569Z - serving on port 5000

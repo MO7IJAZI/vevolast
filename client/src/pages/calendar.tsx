@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Plus, Calendar as CalendarIcon, ChevronLeft, ChevronRight, Filter, Clock, User, Building2, Package, Wallet, CheckCircle, AlertCircle, X, Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { HasPermission, HasAnyPermission } from "@/components/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -377,22 +378,28 @@ function EventCard({
 
         <div className="flex gap-2">
           {event.status !== "done" && "id" in event && (
-            <Button size="sm" variant="outline" onClick={() => onMarkDone((event as CalendarEvent).id)} data-testid={`button-mark-done-${(event as CalendarEvent).id}`}>
-              <CheckCircle className="w-4 h-4 me-1" />
-              {t.markDone}
-            </Button>
+            <HasPermission permission="calendar:edit">
+              <Button size="sm" variant="outline" onClick={() => onMarkDone((event as CalendarEvent).id)} data-testid={`button-mark-done-${(event as CalendarEvent).id}`}>
+                <CheckCircle className="w-4 h-4 me-1" />
+                {t.markDone}
+              </Button>
+            </HasPermission>
           )}
           {client && (
-            <Button size="sm" variant="ghost" onClick={() => onNavigate("/clients")} data-testid="button-view-client">
-              <Eye className="w-4 h-4 me-1" />
-              {t.viewDetails}
-            </Button>
+            <HasAnyPermission permissions={["clients:view", "leads:view"]}>
+              <Button size="sm" variant="ghost" onClick={() => onNavigate("/clients")} data-testid="button-view-client">
+                <Eye className="w-4 h-4 me-1" />
+                {t.viewDetails}
+              </Button>
+            </HasAnyPermission>
           )}
           {employee && event.eventType === "payroll" && (
-            <Button size="sm" variant="ghost" onClick={() => onNavigate("/finance")} data-testid="button-view-payroll">
-              <Wallet className="w-4 h-4 me-1" />
-              {t.viewDetails}
-            </Button>
+            <HasPermission permission="finance:view">
+              <Button size="sm" variant="ghost" onClick={() => onNavigate("/finance")} data-testid="button-view-payroll">
+                <Wallet className="w-4 h-4 me-1" />
+                {t.viewDetails}
+              </Button>
+            </HasPermission>
           )}
         </div>
       </CardContent>
@@ -624,10 +631,12 @@ export default function CalendarPage() {
             {stats.today > 0 && <span className="text-orange-500">{stats.today} {t.status.today}</span>}
           </div>
         </div>
-        <Button onClick={() => setIsModalOpen(true)} data-testid="button-add-event">
-          <Plus className="h-4 w-4 me-2" />
-          {t.addEvent}
-        </Button>
+        <HasPermission permission="calendar:create">
+          <Button onClick={() => setIsModalOpen(true)} data-testid="button-add-event">
+            <Plus className="h-4 w-4 me-2" />
+            {t.addEvent}
+          </Button>
+        </HasPermission>
       </div>
 
       {/* Filters */}
@@ -691,10 +700,12 @@ export default function CalendarPage() {
                 </div>
                 <h2 className="text-xl font-semibold mb-2">{t.emptyTitle}</h2>
                 <p className="text-muted-foreground text-center max-w-md mb-6">{t.emptySubtitle}</p>
-                <Button onClick={() => setIsModalOpen(true)} data-testid="button-add-first-event">
-                  <Plus className="h-4 w-4 me-2" />
-                  {t.addFirstEvent}
-                </Button>
+                <HasPermission permission="calendar:create">
+                  <Button onClick={() => setIsModalOpen(true)} data-testid="button-add-first-event">
+                    <Plus className="h-4 w-4 me-2" />
+                    {t.addFirstEvent}
+                  </Button>
+                </HasPermission>
               </CardContent>
             </Card>
           ) : (

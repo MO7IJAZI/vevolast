@@ -12,6 +12,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { EmployeeAvatar } from "@/components/employee-avatar";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useCurrency, currencies, type Currency } from "@/contexts/CurrencyContext";
@@ -494,20 +495,22 @@ export function Header() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="rounded-full" data-testid="button-user-menu">
-              <Avatar className="h-8 w-8">
-                <AvatarFallback className="bg-primary text-primary-foreground text-sm">
-                  {language === "ar" ? "أ" : "O"}
-                </AvatarFallback>
-              </Avatar>
+              <EmployeeAvatar 
+                name={user?.name || ""} 
+                nameEn={user?.nameEn || ""} 
+                profileImage={user?.profileImage}
+                size="sm"
+              />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align={direction === "rtl" ? "start" : "end"} className="w-48">
-            <div className="px-3 py-2">
-              <p className="font-semibold">{language === "ar" ? user?.name : user?.nameEn || user?.name}</p>
-              <p className="text-xs text-muted-foreground">{user?.role === "admin" ? (language === "ar" ? "مدير" : "Admin") : user?.role}</p>
+          <DropdownMenuContent align={direction === "rtl" ? "start" : "end"} className="w-56">
+            <div className="px-3 py-2 border-b mb-1">
+              <p className="font-semibold truncate">{language === "ar" ? user?.name : user?.nameEn || user?.name}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+              <p className="text-[10px] mt-1 uppercase tracking-wider font-bold text-primary/80">
+                {user?.role === "admin" ? (language === "ar" ? "مدير النظام" : "System Admin") : (language === "ar" ? "موظف" : "Employee")}
+              </p>
             </div>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>{t("nav.settings")}</DropdownMenuItem>
             <DropdownMenuItem 
               className="text-destructive cursor-pointer" 
               onClick={handleLogout}

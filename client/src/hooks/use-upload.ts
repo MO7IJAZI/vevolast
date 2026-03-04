@@ -90,7 +90,7 @@ export function useUpload(options: UseUploadOptions = {}) {
 
         const uploadResponse: UploadResponse = {
            uploadURL: uploadURL,
-           objectPath: uuid, // Use UUID as the object path reference
+           objectPath: `/objects/uploads/${uuid}`, // Use the full serving path as the reference
            metadata: {
              name: file.name,
              size: file.size,

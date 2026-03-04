@@ -409,6 +409,7 @@ export function registerAuthRoutes(app: Express) {
         email: user.email,
         name: user.name,
         nameEn: user.nameEn,
+        profileImage: user.avatar,
         role: roleName,
         roleId: user.roleId,
         department: user.department,
@@ -479,6 +480,7 @@ export function registerAuthRoutes(app: Express) {
         email: user.email,
         name: user.name,
         nameEn: user.nameEn,
+        profileImage: user.avatar,
         role: userRole?.name || "employee",
         roleId: user.roleId,
         department: user.department,
@@ -653,7 +655,7 @@ export function registerAuthRoutes(app: Express) {
 
   app.post("/api/auth/invite", requireAdmin, async (req, res) => {
     try {
-      const { email, name, nameEn, roleId, department, employeeId, permissions } = req.body;
+      const { email, name, nameEn, roleId, department, employeeId, permissions, profileImage } = req.body;
       
       if (!email || !name || !roleId) {
         return res.status(400).json({ error: "Email, name and role are required" });
@@ -678,6 +680,7 @@ export function registerAuthRoutes(app: Express) {
         permissions: permissions || [],
         department,
         employeeId,
+        profileImage,
         invitedBy: req.session.userId,
         expiresAt,
       });
@@ -783,6 +786,7 @@ export function registerAuthRoutes(app: Express) {
         permissions: invitation.permissions || [],
         department: invitation.department,
         employeeId: invitation.employeeId,
+        avatar: invitation.profileImage,
         isActive: true,
       });
       
@@ -932,6 +936,53 @@ export function registerAuthRoutes(app: Express) {
     } catch (error) {
       console.error("Change password error:", error);
       res.status(500).json({ error: "Failed to change password" });
+    }
+  });
+
+  app.patch("/api/auth/profile", requireAuth, async (req, res) => {
+    try {
+      const { nameEn, avatar } = req.body;
+      const updateData: any = {};
+      
+      if (nameEn !== undefined) updateData.nameEn = nameEn;
+      if (avatar !== undefined) updateData.avatar = avatar;
+      
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ error: "No data to update" });
+      }
+      
+      const userId = req.session.userId!;
+      await db.update(users).set(updateData).where(eq(users.id, userId));
+      
+      // Load user to see if they are linked to an employee
+      const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      
+      // Sync to employee record if it exists
+      if (avatar !== undefined) {
+        if (user.employeeId) {
+          await db.update(employees).set({ profileImage: avatar }).where(eq(employees.id, user.employeeId));
+        } else {
+          // Fallback: sync by email
+          await db.update(employees).set({ profileImage: avatar }).where(eq(employees.email, user.email));
+        }
+      }
+      
+      const [updatedUser] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      
+      res.json({
+        message: "Profile updated successfully",
+        user: {
+          id: updatedUser.id,
+          email: updatedUser.email,
+          name: updatedUser.name,
+          nameEn: updatedUser.nameEn,
+          profileImage: updatedUser.avatar,
+          role: req.session.userRole,
+        }
+      });
+    } catch (error) {
+      console.error("Update profile error:", error);
+      res.status(500).json({ error: "Failed to update profile" });
     }
   });
 

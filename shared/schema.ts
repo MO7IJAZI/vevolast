@@ -98,6 +98,7 @@ export const invitations = mysqlTable("invitations", {
   nameEn: varchar("name_en", { length: 255 }),
   department: varchar("department", { length: 100 }),
   employeeId: varchar("employee_id", { length: 100 }),
+  profileImage: text("profile_image"),
   usedAt: datetime("used_at"),
   invitedBy: varchar("invited_by", { length: 36 }),
   createdAt: timestamp("created_at").defaultNow(),
@@ -124,6 +125,7 @@ export const ALL_PERMISSIONS = {
   reports: ["view", "export"],
   settings: ["view", "edit"],
   roles: ["view", "create", "edit", "delete"], // New permission for managing roles
+  calendar: ["view", "create", "edit", "delete"],
 } as const;
 
 export type Resource = keyof typeof ALL_PERMISSIONS;

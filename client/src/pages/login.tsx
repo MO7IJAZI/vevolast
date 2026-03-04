@@ -148,7 +148,7 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">{content.email}</Label>
-                <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                <div className="flex items-center gap-2 rounded-md border bg-background px-3 h-10 border-input focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all overflow-hidden">
                   <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <input
                     id="email"
@@ -156,7 +156,7 @@ export default function LoginPage() {
                     placeholder={content.emailPlaceholder}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-transparent outline-none text-sm"
+                    className="w-full bg-transparent outline-none text-sm h-full"
                     required
                     disabled={isLoading}
                     data-testid="input-email"
@@ -166,7 +166,7 @@ export default function LoginPage() {
 
               <div className="space-y-2">
                 <Label htmlFor="password">{content.password}</Label>
-                <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-2 focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                <div className="flex items-center gap-2 rounded-md border bg-background px-3 h-10 border-input focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all overflow-hidden">
                   <Lock className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <input
                     id="password"
@@ -174,7 +174,7 @@ export default function LoginPage() {
                     placeholder={content.passwordPlaceholder}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-transparent outline-none text-sm"
+                    className="w-full bg-transparent outline-none text-sm h-full"
                     required
                     disabled={isLoading}
                     data-testid="input-password"
@@ -183,7 +183,7 @@ export default function LoginPage() {
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     disabled={isLoading}
-                    className="shrink-0 text-muted-foreground hover:text-foreground"
+                    className="shrink-0 text-muted-foreground hover:text-foreground outline-none transition-colors"
                     aria-label={showPassword ? "Hide password" : "Show password"}
                     data-testid="button-toggle-password"
                   >
@@ -196,12 +196,12 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <div className="flex justify-start">
+              <div className="flex justify-end">
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="link"
                   size="sm"
-                  className="px-0 text-muted-foreground hover:text-primary h-auto"
+                  className="px-0 text-muted-foreground hover:text-primary h-auto text-xs"
                   onClick={() => setLocation("/forgot-password")}
                   data-testid="link-forgot-password"
                 >

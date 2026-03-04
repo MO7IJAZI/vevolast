@@ -369,7 +369,7 @@ export default function EmployeesPage() {
     setIsModalOpen(true);
   };
 
-  const sendInvitationToEmployee = async (email: string, name: string, nameEn?: string, roleId?: string, department?: string, employeeId?: string) => {
+  const sendInvitationToEmployee = async (email: string, name: string, nameEn?: string, roleId?: string, department?: string, employeeId?: string, profileImage?: string) => {
     try {
       setIsSendingInvite(true);
       const response = await apiRequest("POST", "/api/auth/invite", {
@@ -379,6 +379,7 @@ export default function EmployeesPage() {
         roleId,
         department,
         employeeId,
+        profileImage,
       });
       
       const data = await response.json();
@@ -471,7 +472,8 @@ export default function EmployeesPage() {
         formData.nameEn,
         formData.roleId,
         formData.department,
-        newEmployeeId
+        newEmployeeId,
+        formData.profileImage
       );
     }
 

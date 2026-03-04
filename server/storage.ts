@@ -1533,13 +1533,16 @@ export class DatabaseStorage implements IStorage {
       // Load the updated employee to get email for cross-sync
       const [updatedEmp] = await tx.select().from(employees).where(eq(employees.id, id)).limit(1);
 
-      // 3. Sync roleId and isActive to User record(s) to ensure auth reflects employee status
+      // 3. Sync roleId, isActive and profileImage to User record(s) to ensure auth reflects employee status
       const updateUserPayload: any = {};
       if (typeof employee.roleId !== "undefined") {
         updateUserPayload.roleId = employee.roleId;
       }
       if (typeof employee.isActive !== "undefined") {
         updateUserPayload.isActive = employee.isActive;
+      }
+      if (typeof employee.profileImage !== "undefined") {
+        updateUserPayload.avatar = employee.profileImage;
       }
       if (Object.keys(updateUserPayload).length > 0) {
         // Users linked by employeeId

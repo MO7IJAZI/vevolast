@@ -178,45 +178,63 @@ export default function SetPasswordPage() {
   );
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-background to-muted/30 p-4">
-      <div className="w-full max-w-md">
-        <Card className="border-border/50 shadow-xl">
-          <CardHeader className="text-center pb-4">
-            <CardTitle className="text-2xl">{content.title}</CardTitle>
-            <CardDescription>
-              {content.welcome}, {inviteData?.name}
+    <div className="min-h-screen flex items-center justify-center bg-[#f8f9fc] dark:bg-[#0a0a0a] p-4 relative overflow-hidden">
+      {/* Background Decorative Elements */}
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+        <div className="absolute -top-[10%] -right-[10%] w-[40%] h-[40%] bg-primary/5 rounded-full blur-3xl" />
+        <div className="absolute -bottom-[10%] -left-[10%] w-[40%] h-[40%] bg-primary/5 rounded-full blur-3xl" />
+      </div>
+
+      <div className="w-full max-w-[440px] relative z-10">
+        <Card className="border-none shadow-[0_8px_30px_rgb(0,0,0,0.04)] dark:shadow-[0_8px_30px_rgb(0,0,0,0.2)] bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl overflow-hidden">
+          <div className="h-1.5 w-full bg-gradient-to-r from-primary/50 via-primary to-primary/50" />
+          
+          <CardHeader className="text-center pt-8 pb-6">
+            <div className="flex justify-center mb-4">
+              <div className="p-3 rounded-2xl bg-primary/10 text-primary">
+                <Lock className="h-8 w-8" />
+              </div>
+            </div>
+            <CardTitle className="text-2xl font-bold tracking-tight">{content.title}</CardTitle>
+            <CardDescription className="text-base mt-2">
+              {content.welcome}, <span className="text-foreground font-semibold">{inviteData?.name}</span>
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+
+          <CardContent className="px-8 pb-8">
+            <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="password">{content.password}</Label>
-                <div className="relative">
-                  <Lock className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Label htmlFor="password" className="text-sm font-medium">{content.password}</Label>
+                <div className="flex items-center gap-2 rounded-md border bg-background/50 px-3 h-11 border-muted-foreground/20 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all overflow-hidden">
                   <Input
                     id="password"
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="ps-10 pe-10 text-start"
+                    className="w-full bg-transparent border-none shadow-none focus-visible:ring-0 focus-visible:border-none p-0 text-base h-full"
                     dir="ltr"
                     required
                     disabled={isLoading}
                     data-testid="input-password"
                   />
-                  <Button
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute end-0 top-0 h-full w-9 hover:bg-transparent"
                     onClick={() => setShowPassword(!showPassword)}
+                    disabled={isLoading}
+                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors p-1 outline-none"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    data-testid="button-toggle-password"
                   >
-                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </Button>
+                    {showPassword ? (
+                      <EyeOff className="h-5 w-5" />
+                    ) : (
+                      <Eye className="h-5 w-5" />
+                    )}
+                  </button>
                 </div>
               </div>
 
-              <div className="space-y-1 p-3 bg-muted/50 rounded-lg">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-4 bg-muted/30 rounded-xl border border-border/50">
                 <RequirementItem met={validation.length} label={content.requirements.length} />
                 <RequirementItem met={validation.uppercase} label={content.requirements.uppercase} />
                 <RequirementItem met={validation.lowercase} label={content.requirements.lowercase} />
@@ -225,32 +243,45 @@ export default function SetPasswordPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="confirmPassword">{content.confirmPassword}</Label>
-                <div className="relative">
-                  <Lock className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Label htmlFor="confirmPassword" className="text-sm font-medium">{content.confirmPassword}</Label>
+                <div className="flex items-center gap-2 rounded-md border bg-background/50 px-3 h-11 border-muted-foreground/20 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 transition-all overflow-hidden">
                   <Input
                     id="confirmPassword"
                     type={showPassword ? "text" : "password"}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="ps-10 text-start"
+                    className="w-full bg-transparent border-none shadow-none focus-visible:ring-0 focus-visible:border-none p-0 text-base h-full"
                     dir="ltr"
                     required
                     disabled={isLoading}
                     data-testid="input-confirm-password"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    disabled={isLoading}
+                    className="shrink-0 text-muted-foreground hover:text-foreground transition-colors p-1 outline-none"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    data-testid="button-toggle-password-confirm"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-5 w-5" />
+                    ) : (
+                      <Eye className="h-5 w-5" />
+                    )}
+                  </button>
                 </div>
               </div>
 
               <Button
                 type="submit"
-                className="w-full"
+                className="w-full h-11 text-base font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-all"
                 disabled={isLoading || !isPasswordValid || password !== confirmPassword}
                 data-testid="button-set-password"
               >
                 {isLoading ? (
                   <>
-                    <Loader2 className="me-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                     {content.setting}
                   </>
                 ) : (
@@ -260,6 +291,10 @@ export default function SetPasswordPage() {
             </form>
           </CardContent>
         </Card>
+        
+        <p className="text-center mt-8 text-sm text-muted-foreground">
+          &copy; {new Date().getFullYear()} Vevoline. All rights reserved.
+        </p>
       </div>
     </div>
   );

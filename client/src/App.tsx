@@ -164,17 +164,17 @@ function ProtectedRoutes() {
           <RolesPage />
         </PermissionGuard>
       </Route>
-      <Route path="/calendar" component={CalendarPage} />
+      <Route path="/calendar">
+        <PermissionGuard permissions={["calendar:view"]}>
+          <CalendarPage />
+        </PermissionGuard>
+      </Route>
       <Route path="/finance">
         <PermissionGuard permissions={["finance:view"]}>
           <FinancePage />
         </PermissionGuard>
       </Route>
-      <Route path="/settings">
-        <PermissionGuard permissions={["settings:view"]}>
-          <SettingsPage />
-        </PermissionGuard>
-      </Route>
+      <Route path="/settings" component={SettingsPage} />
       <Route path="/sales">
         <PermissionGuard permissions={["clients:view", "clients:edit"]}>
           <SalesPage />
