@@ -107,7 +107,7 @@ export default function EmployeesPage() {
   const { formatCurrency, convertAmount, currency: displayCurrency } = useCurrency();
   const { toast } = useToast();
   const { user, isAdmin, hasPermission } = useAuth();
-  const { employees, clients, leads, invoices, addEmployee, updateEmployee, deleteEmployee } = useData();
+  const { employees, clients, leads, invoices, addEmployee, updateEmployee, deleteEmployee, reassignAndDeleteEmployee } = useData();
   const [, navigate] = useLocation();
   const [isSendingInvite, setIsSendingInvite] = useState(false);
 
@@ -132,6 +132,11 @@ export default function EmployeesPage() {
   // Invite Link Modal State
   const [inviteLinkData, setInviteLinkData] = useState<string | null>(null);
   const [showInviteLinkModal, setShowInviteLinkModal] = useState(false);
+
+  // Delete/reassign dialog state
+  const [deleteTarget, setDeleteTarget] = useState<Employee | null>(null);
+  const [reassignTo, setReassignTo] = useState<string>("");
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -475,7 +480,14 @@ export default function EmployeesPage() {
   };
 
   const handleDelete = (id: string) => {
-    deleteEmployee(id);
+    const emp = employees.find(e => e.id === id);
+    if (emp) {
+      setDeleteTarget(emp);
+      setReassignTo("");
+      setShowDeleteDialog(true);
+    } else {
+      deleteEmployee(id);
+    }
   };
 
   const openProfile = (employee: Employee) => {
@@ -504,6 +516,20 @@ export default function EmployeesPage() {
      return language === "ar" ? (emp.roleAr || emp.role) : emp.role;
   }
 
+  const toggleActive = async (emp: Employee, value: boolean) => {
+    try {
+      updateEmployee(emp.id, { isActive: value });
+      toast({
+        title: language === "ar" ? "تم تحديث الحالة" : "Status Updated",
+        description: value
+          ? (language === "ar" ? "تم تفعيل الحساب ويمكنه تسجيل الدخول" : "Account activated; user can sign in")
+          : (language === "ar" ? "تم تعطيل الحساب ولن يتمكن من تسجيل الدخول" : "Account deactivated; user cannot sign in"),
+      });
+    } catch {
+      toast({ variant: "destructive", title: language === "ar" ? "خطأ" : "Error" });
+    }
+  };
+
   // Render employee profile drawer
   const renderProfileDrawer = () => {
     if (!selectedEmployee) return null;
@@ -516,7 +542,7 @@ export default function EmployeesPage() {
 
     return (
       <Sheet open={isProfileOpen} onOpenChange={setIsProfileOpen}>
-        <SheetContent side={language === "ar" ? "left" : "right"} className="w-[400px] sm:w-[540px] overflow-y-auto">
+        <SheetContent side="end" className="w-[400px] sm:w-[540px] overflow-y-auto">
           <SheetHeader>
             <SheetTitle>{t.employeeProfile}</SheetTitle>
             <SheetDescription>{name}</SheetDescription>
@@ -899,9 +925,9 @@ export default function EmployeesPage() {
                         value={formData.salaryType === "monthly" ? formData.salaryAmount : formData.rate}
                         onChange={(e) => updateFormField(formData.salaryType === "monthly" ? "salaryAmount" : "rate", e.target.value)}
                         placeholder="0.00"
-                        className="pl-16"
+                        className="ps-16"
                       />
-                       <div className="absolute left-0 top-0 h-full w-14 border-r bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground rounded-l-md">
+                       <div className="absolute start-0 top-0 h-full w-14 border-e bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground rounded-s-md">
                          <Select 
                            value={formData.salaryCurrency} 
                            onValueChange={(v) => updateFormField("salaryCurrency", v)}
@@ -951,7 +977,7 @@ export default function EmployeesPage() {
               </div>
             )}
 
-            <div className="flex items-center space-x-2 pt-2">
+            <div className="flex items-center gap-2 pt-2">
               <Switch
                 id="is-active"
                 checked={formData.isActive}
@@ -981,7 +1007,7 @@ export default function EmployeesPage() {
         <div className="flex items-center gap-2">
           <HasPermission permission="employees:create">
             <Button onClick={() => openModal()} className="w-full sm:w-auto">
-              <Plus className="mr-2 h-4 w-4" /> {t.addEmployee}
+              <Plus className="me-2 h-4 w-4" /> {t.addEmployee}
             </Button>
           </HasPermission>
         </div>
@@ -989,10 +1015,10 @@ export default function EmployeesPage() {
 
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
         <div className="relative w-full sm:w-72">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute start-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={t.search}
-            className="pl-8"
+            className="ps-8"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -1029,7 +1055,7 @@ export default function EmployeesPage() {
           </p>
           <HasPermission permission="employees:create">
             <Button onClick={() => openModal()}>
-              <Plus className="mr-2 h-4 w-4" /> {t.addEmployee}
+              <Plus className="me-2 h-4 w-4" /> {t.addEmployee}
             </Button>
           </HasPermission>
         </Card>
@@ -1041,18 +1067,18 @@ export default function EmployeesPage() {
 
             return (
               <Card key={employee.id} className="overflow-hidden hover:shadow-md transition-shadow">
-                <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between space-y-0">
-                  <div className="flex items-start gap-3">
+                <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between space-y-0 gap-2">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
                     <EmployeeAvatar 
                       name={employee.name}
                       nameEn={employee.nameEn}
                       profileImage={employee.profileImage}
                     />
-                    <div>
-                      <h3 className="font-semibold text-sm line-clamp-1" title={language === "ar" ? employee.name : (employee.nameEn || employee.name)}>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-sm truncate" title={language === "ar" ? employee.name : (employee.nameEn || employee.name)}>
                         {language === "ar" ? employee.name : (employee.nameEn || employee.name)}
                       </h3>
-                      <p className="text-xs text-muted-foreground line-clamp-1" title={roleName}>
+                      <p className="text-xs text-muted-foreground truncate" title={roleName}>
                         {roleName}
                       </p>
                     </div>
@@ -1065,11 +1091,11 @@ export default function EmployeesPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => openProfile(employee)}>
-                        <UserCircle className="mr-2 h-4 w-4" /> {t.viewProfile}
+                        <UserCircle className="me-2 h-4 w-4" /> {t.viewProfile}
                       </DropdownMenuItem>
                       <HasPermission permission="employees:edit">
                         <DropdownMenuItem onClick={() => openModal(employee)}>
-                          <Pencil className="mr-2 h-4 w-4" /> {t.edit}
+                          <Pencil className="me-2 h-4 w-4" /> {t.edit}
                         </DropdownMenuItem>
                       </HasPermission>
                       <HasPermission permission="employees:delete">
@@ -1077,20 +1103,32 @@ export default function EmployeesPage() {
                           className="text-destructive focus:text-destructive"
                           onClick={() => handleDelete(employee.id)}
                         >
-                          <Trash2 className="mr-2 h-4 w-4" /> {t.delete}
+                          <Trash2 className="me-2 h-4 w-4" /> {t.delete}
                         </DropdownMenuItem>
                       </HasPermission>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </CardHeader>
                 <CardContent className="p-4 pt-2 space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    <Badge className={cn("text-xs px-2 py-0.5", deptInfo.bgColor, deptInfo.color)}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className={cn("text-[10px] px-1.5 py-0.5 shrink-0", deptInfo.bgColor, deptInfo.color)}>
                       {language === "ar" ? deptInfo.labelAr : deptInfo.labelEn}
                     </Badge>
-                    <Badge variant={employee.isActive ? "default" : "secondary"} className="text-xs px-2 py-0.5">
+                    <Badge variant={employee.isActive ? "default" : "secondary"} className="text-[10px] px-1.5 py-0.5 shrink-0">
                       {employee.isActive ? t.active : t.inactive}
                     </Badge>
+                    <HasPermission permission="employees:edit">
+                      <div className="flex items-center gap-1.5 ms-auto shrink-0">
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                          {employee.isActive ? (language === "ar" ? "نشط" : "Active") : (language === "ar" ? "غير نشط" : "Inactive")}
+                        </span>
+                        <Switch
+                          className="scale-75 origin-right rtl:origin-left"
+                          checked={employee.isActive}
+                          onCheckedChange={(v) => toggleActive(employee, v)}
+                        />
+                      </div>
+                    </HasPermission>
                   </div>
                   
                   <div className="space-y-1 text-xs text-muted-foreground">
@@ -1123,6 +1161,75 @@ export default function EmployeesPage() {
 
       {renderModal()}
       {renderProfileDrawer()}
+
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{language === "ar" ? "حذف الموظف" : "Delete Employee"}</DialogTitle>
+            <DialogDescription>
+              {language === "ar"
+                ? "يمكنك تعيين موظف نشط بدلاً عنه في جميع الأماكن المرتبط بها، أو حذفه بدون تعيين بديل."
+                : "Reassign all responsibilities to another active employee, or delete without reassignment."}
+            </DialogDescription>
+          </DialogHeader>
+          {deleteTarget && (
+            <div className="space-y-4">
+              <div className="p-3 rounded-md bg-muted/40 text-sm">
+                <div className="font-medium">{language === "ar" ? "الموظف:" : "Employee:"} {language === "ar" ? deleteTarget.name : (deleteTarget.nameEn || deleteTarget.name)}</div>
+                <div className="text-muted-foreground">{deleteTarget.email}</div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm">
+                  {language === "ar" ? "عيّن بديل (اختياري)" : "Assign replacement (optional)"}
+                </Label>
+                <Select value={reassignTo} onValueChange={setReassignTo}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={language === "ar" ? "اختر موظفاً نشطاً" : "Select an active employee"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {employees
+                      .filter((e) => e.isActive && e.id !== deleteTarget.id)
+                      .map((e) => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {language === "ar" ? e.name : (e.nameEn || e.name)} — {e.email}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+                  {t.cancel}
+                </Button>
+                <Button variant="secondary" onClick={async () => {
+                  if (!deleteTarget) return;
+                  try {
+                    await reassignAndDeleteEmployee(deleteTarget.id, { force: true });
+                    setShowDeleteDialog(false);
+                    setDeleteTarget(null);
+                  } catch {
+                    toast({ variant: "destructive", title: language === "ar" ? "خطأ" : "Error", description: language === "ar" ? "فشل حذف الموظف" : "Failed to delete employee" });
+                  }
+                }}>
+                  {language === "ar" ? "حذف بدون تعيين" : "Delete without reassignment"}
+                </Button>
+                <Button onClick={async () => {
+                  if (!deleteTarget || !reassignTo) return;
+                  try {
+                    await reassignAndDeleteEmployee(deleteTarget.id, { reassignTo });
+                    setShowDeleteDialog(false);
+                    setDeleteTarget(null);
+                  } catch {
+                    toast({ variant: "destructive", title: language === "ar" ? "خطأ" : "Error", description: language === "ar" ? "فشل حذف الموظف" : "Failed to delete employee" });
+                  }
+                }} disabled={!reassignTo}>
+                  {language === "ar" ? "حذف وتعيين البديل" : "Delete and reassign"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Invite Link Modal */}
       <Dialog open={showInviteLinkModal} onOpenChange={setShowInviteLinkModal}>

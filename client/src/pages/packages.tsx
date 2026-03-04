@@ -541,11 +541,14 @@ export default function PackagesPage() {
 
   // Deliverable handlers
   const addDeliverable = () => {
+    const timestamp = Date.now();
     const newDeliverable: Deliverable = {
-      key: `del-${Date.now()}`,
+      key: `del-${timestamp}`,
       labelAr: "",
       labelEn: "",
+      label: "", // Default label needed
       value: "",
+      target: 1, // Default target
       icon: "star",
     };
     setSubFormData((prev) => ({
@@ -554,12 +557,20 @@ export default function PackagesPage() {
     }));
   };
 
-  const updateDeliverable = (index: number, field: keyof Deliverable, value: string | number) => {
+  const updateDeliverable = (index: number, field: keyof Deliverable, value: any) => {
     setSubFormData((prev) => ({
       ...prev,
-      deliverables: prev.deliverables.map((d, i) => 
-        i === index ? { ...d, [field]: value } : d
-      ),
+      deliverables: prev.deliverables.map((d, i) => {
+        if (i === index) {
+          const updated = { ...d, [field]: value };
+          // Auto-update default label if labelAr/labelEn changes
+          if (field === 'labelAr' || field === 'labelEn') {
+             updated.label = updated.labelAr || updated.labelEn || "";
+          }
+          return updated;
+        }
+        return d;
+      }),
     }));
   };
 
@@ -589,6 +600,15 @@ export default function PackagesPage() {
   };
 
   const activeSubPackagesCount = subPackages.filter((sp) => sp.isActive).length;
+
+  const [expandedPackages, setExpandedPackages] = useState<Set<string>>(new Set());
+  const toggleExpanded = (id: string) => {
+    setExpandedPackages(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const renderDeliverable = (d: Deliverable) => {
     const IconComponent = (d.icon && iconComponents[d.icon]) || Check;
@@ -994,51 +1014,78 @@ export default function PackagesPage() {
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-4">
-                      <Input
-                        placeholder={t.deliverableLabelAr}
-                        value={del.labelAr}
-                        onChange={(e) => updateDeliverable(index, "labelAr", e.target.value)}
-                        data-testid={`input-del-label-ar-${index}`}
-                      />
-                      <Input
-                        placeholder={t.deliverableLabelEn}
-                        value={del.labelEn}
-                        onChange={(e) => updateDeliverable(index, "labelEn", e.target.value)}
-                        data-testid={`input-del-label-en-${index}`}
-                      />
-                      <Input
-                        placeholder={t.deliverableValue}
-                        value={del.value}
-                        onChange={(e) => updateDeliverable(index, "value", e.target.value)}
-                        data-testid={`input-del-value-${index}`}
-                      />
-                      <Select
-                        value={del.icon || "star"}
-                        onValueChange={(v) => updateDeliverable(index, "icon", v)}
-                      >
-                        <SelectTrigger data-testid={`select-del-icon-${index}`}>
-                          <div className="flex items-center gap-1">
-                            {(() => {
-                              const IconPreview = iconComponents[del.icon || "star"] || Star;
-                              return <IconPreview className="h-3 w-3" />;
-                            })()}
-                          </div>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {iconOptions.map((opt) => {
-                            const IconOpt = iconComponents[opt.key] || Package;
-                            return (
-                              <SelectItem key={opt.key} value={opt.key}>
-                                <div className="flex items-center gap-2">
-                                  <IconOpt className="h-4 w-4" />
-                                  <span>{language === "ar" ? opt.labelAr : opt.labelEn}</span>
-                                </div>
-                              </SelectItem>
-                            );
-                          })}
-                        </SelectContent>
-                      </Select>
+                    <div className="grid gap-2 sm:grid-cols-5 items-center">
+                      <div className="col-span-2 space-y-1">
+                        <Label className="text-xs">{t.deliverableLabelAr}</Label>
+                        <Input
+                          placeholder={t.deliverableLabelAr}
+                          value={del.labelAr}
+                          onChange={(e) => updateDeliverable(index, "labelAr", e.target.value)}
+                          data-testid={`input-del-label-ar-${index}`}
+                        />
+                      </div>
+                      <div className="col-span-2 space-y-1">
+                        <Label className="text-xs">{t.deliverableLabelEn}</Label>
+                        <Input
+                          placeholder={t.deliverableLabelEn}
+                          value={del.labelEn}
+                          onChange={(e) => updateDeliverable(index, "labelEn", e.target.value)}
+                          data-testid={`input-del-label-en-${index}`}
+                        />
+                      </div>
+                      <div className="col-span-1 space-y-1">
+                        <Label className="text-xs">{t.deliverableValue}</Label>
+                        <Input
+                          placeholder={t.deliverableValue}
+                          value={del.value}
+                          onChange={(e) => updateDeliverable(index, "value", e.target.value)}
+                          data-testid={`input-del-value-${index}`}
+                        />
+                      </div>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-5 items-center">
+                      <div className="col-span-2 space-y-1">
+                        <Label className="text-xs">{t.deliverableIcon}</Label>
+                        <Select
+                          value={del.icon || "star"}
+                          onValueChange={(v) => updateDeliverable(index, "icon", v)}
+                        >
+                          <SelectTrigger data-testid={`select-del-icon-${index}`}>
+                            <div className="flex items-center gap-1">
+                              {(() => {
+                                const IconPreview = iconComponents[del.icon || "star"] || Star;
+                                return <IconPreview className="h-3 w-3" />;
+                              })()}
+                              <span className="truncate">{iconOptions.find(o => o.key === (del.icon || "star"))?.labelAr || del.icon}</span>
+                            </div>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {iconOptions.map((opt) => {
+                              const IconOpt = iconComponents[opt.key] || Package;
+                              return (
+                                <SelectItem key={opt.key} value={opt.key}>
+                                  <div className="flex items-center gap-2">
+                                    <IconOpt className="h-4 w-4" />
+                                    <span>{language === "ar" ? opt.labelAr : opt.labelEn}</span>
+                                  </div>
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-3 flex items-center gap-2 pt-6">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            id={`del-bool-${index}`}
+                            checked={del.isBoolean || false}
+                            onCheckedChange={(checked) => updateDeliverable(index, "isBoolean", checked)}
+                          />
+                          <Label htmlFor={`del-bool-${index}`} className="text-sm font-normal cursor-pointer">
+                            {language === "ar" ? "نعم/لا (بدون عداد)" : "Yes/No (Boolean)"}
+                          </Label>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -1331,6 +1378,10 @@ export default function PackagesPage() {
                                   </div>
                                 </CardHeader>
                                 <CardContent className="pt-0">
+                                  {(() => {
+                                    const isExpanded = expandedPackages.has(subPkg.id);
+                                    return (
+                                      <>
                                   <div className="flex items-center justify-between mb-3">
                                     <span className="text-xl font-bold">
                                       {hasPermission("view_packages") ? formatCurrency(
@@ -1343,23 +1394,23 @@ export default function PackagesPage() {
                                     </Badge>
                                   </div>
 
-                                  {subPkg.description && (
-                                    <p className="text-sm text-muted-foreground mb-3 line-clamp-2">
-                                      {language === "ar" ? subPkg.description : (subPkg.descriptionEn || subPkg.description)}
-                                    </p>
-                                  )}
-
-                                  {subPkg.deliverables && Array.isArray(subPkg.deliverables) && subPkg.deliverables.length > 0 && (
-                                    <div className="space-y-1.5 mb-3 p-2 rounded-md bg-muted/50">
-                                      <p className="text-xs font-medium text-muted-foreground mb-1">{t.deliverables}</p>
-                                      {subPkg.deliverables.slice(0, 4).map(renderDeliverable)}
-                                      {subPkg.deliverables.length > 4 && (
-                                        <p className="text-xs text-muted-foreground">
-                                          +{subPkg.deliverables.length - 4} {language === "ar" ? "أخرى" : "more"}
+                                      {subPkg.description && (
+                                        <p className={cn("text-sm text-muted-foreground mb-3", !isExpanded && "line-clamp-2")}>
+                                          {language === "ar" ? subPkg.description : (subPkg.descriptionEn || subPkg.description)}
                                         </p>
                                       )}
-                                    </div>
-                                  )}
+
+                                      {subPkg.deliverables && Array.isArray(subPkg.deliverables) && subPkg.deliverables.length > 0 && (
+                                        <div className="space-y-1.5 mb-3 p-2 rounded-md bg-muted/50">
+                                          <p className="text-xs font-medium text-muted-foreground mb-1">{t.deliverables}</p>
+                                          {(isExpanded ? subPkg.deliverables : subPkg.deliverables.slice(0, 4)).map(renderDeliverable)}
+                                          {!isExpanded && subPkg.deliverables.length > 4 && (
+                                            <p className="text-xs text-muted-foreground">
+                                              +{subPkg.deliverables.length - 4} {language === "ar" ? "أخرى" : "more"}
+                                            </p>
+                                          )}
+                                        </div>
+                                      )}
 
                                   {subPkg.platforms && Array.isArray(subPkg.platforms) && subPkg.platforms.length > 0 && (
                                     <div className="mb-3">
@@ -1374,19 +1425,33 @@ export default function PackagesPage() {
                                     </div>
                                   )}
 
-                                  {subPkg.features && (
-                                    <div className="space-y-1">
-                                      {(language === "ar" ? subPkg.features : (subPkg.featuresEn || subPkg.features))
-                                        .split("\n")
-                                        .slice(0, 3)
-                                        .map((feature, i) => (
-                                          <div key={i} className="flex items-center gap-2 text-sm">
-                                            <Check className="h-3 w-3 text-green-600 dark:text-green-400 flex-shrink-0" />
-                                            <span className="text-muted-foreground truncate">{feature}</span>
-                                          </div>
-                                        ))}
-                                    </div>
-                                  )}
+                                      {subPkg.features && (
+                                        <div className="space-y-1">
+                                          {(language === "ar" ? subPkg.features : (subPkg.featuresEn || subPkg.features))
+                                            .split("\n")
+                                            .filter(Boolean)
+                                            .slice(0, isExpanded ? undefined : 3)
+                                            .map((feature, i) => (
+                                              <div key={i} className="flex items-center gap-2 text-sm">
+                                                <Check className="h-3 w-3 text-green-600 dark:text-green-400 flex-shrink-0" />
+                                                <span className="text-muted-foreground">{feature}</span>
+                                              </div>
+                                            ))}
+                                        </div>
+                                      )}
+
+                                      <div className="mt-3">
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => toggleExpanded(subPkg.id)}
+                                        >
+                                          {isExpanded ? (language === "ar" ? "إخفاء" : "Hide") : (language === "ar" ? "عرض الكل" : "Show all")}
+                                        </Button>
+                                      </div>
+                                      </>
+                                    );
+                                  })()}
                                 </CardContent>
                               </Card>
                             ))}

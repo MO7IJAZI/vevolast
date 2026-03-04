@@ -520,10 +520,10 @@ export default function InvoicesPage() {
 
       <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-card p-4 rounded-lg border shadow-sm">
         <div className="relative w-full sm:w-96">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground rtl:left-auto rtl:right-3" />
+          <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={t.searchPlaceholder}
-            className="pl-10 rtl:pl-3 rtl:pr-10"
+            className="ps-10"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />

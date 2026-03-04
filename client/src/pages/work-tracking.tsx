@@ -8,13 +8,16 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { 
   Search, Calendar, User, Package, CheckCircle2, Clock, AlertCircle, 
   TrendingUp, MapPin, Users, Building2, ChevronDown, ChevronUp, Check,
-  Image, Video, MessageSquare, FileText, Palette, Globe, Smartphone, Bot
+  Image, Video, MessageSquare, FileText, Palette, Globe, Smartphone, Bot,
+  Share2, Brain, Settings, Circle, Megaphone, Layout, CreditCard, Truck, 
+  Layers, Edit, Star, Type, Book, BarChart, Zap
 } from "lucide-react";
 import { EmployeeChips } from "@/components/employee-chip";
 import { cn } from "@/lib/utils";
@@ -38,6 +41,8 @@ const deliverablesTemplates: Record<string, { key: string; labelAr: string; labe
   "main-pkg-3": [ // Branding / Logo
     { key: "concepts", labelAr: "التصاميم المبدئية", labelEn: "Concepts", defaultTarget: 3, icon: "palette" },
     { key: "revisions", labelAr: "التعديلات", labelEn: "Revisions", defaultTarget: 2, icon: "palette" },
+    { key: "formats", labelAr: "الصيغ", labelEn: "Formats", defaultTarget: 0, icon: "file" },
+    { key: "delivery", labelAr: "تسليم الملفات النهائية", labelEn: "Final Files Delivery", defaultTarget: 1, icon: "file", isBoolean: true },
     { key: "final", labelAr: "تسليم الملفات النهائية", labelEn: "Final Files Delivery", defaultTarget: 1, icon: "file", isBoolean: true },
   ],
   "main-pkg-4": [ // AI Services
@@ -64,6 +69,7 @@ const deliverablesTemplates: Record<string, { key: string; labelAr: string; labe
 
 // Get icon component by name
 const getDeliverableIcon = (iconName: string) => {
+  // Use the extended icon mapping similar to packages.tsx
   const icons: Record<string, typeof Image> = {
     image: Image,
     video: Video,
@@ -74,6 +80,26 @@ const getDeliverableIcon = (iconName: string) => {
     smartphone: Smartphone,
     bot: Bot,
     check: Check,
+    share2: Share2,
+    brain: Brain,
+    settings: Settings,
+    circle: Circle,
+    "file-text": FileText,
+    users: Users,
+    megaphone: Megaphone,
+    layout: Layout,
+    clock: Clock,
+    "credit-card": CreditCard,
+    truck: Truck,
+    package: Package,
+    layers: Layers,
+    edit: Edit,
+    star: Star,
+    type: Type,
+    book: Book,
+    "bar-chart": BarChart,
+    zap: Zap,
+    "message-circle": MessageSquare,
   };
   return icons[iconName] || FileText;
 };
@@ -436,11 +462,157 @@ export default function WorkTrackingPage() {
     return service.serviceName || service.serviceType;
   };
 
-  // Get employee name
+  // Helper to safely check array inclusion with robust ID comparison
+  const normalizeId = (id: any) => String(id || "").trim().toLowerCase();
+  
+  const isUserInList = (list: any, userId: string | undefined) => {
+    if (!userId) return false;
+    const normalizedUserId = normalizeId(userId);
+    
+    let safeList: any[] = [];
+    if (Array.isArray(list)) {
+      safeList = list;
+    } else if (typeof list === 'string' && list.trim() !== "") {
+      if (list.startsWith('[') && list.endsWith(']')) {
+        try { safeList = JSON.parse(list); } catch { safeList = []; }
+      } else {
+        // Handle comma separated strings
+        safeList = list.split(',').map(s => s.trim());
+      }
+    }
+    
+    if (!Array.isArray(safeList)) return false;
+    return safeList.some(id => normalizeId(id) === normalizedUserId);
+  };
+
+  const isSameUser = (id1: any, id2: any) => {
+     const n1 = normalizeId(id1);
+     const n2 = normalizeId(id2);
+     return n1 !== "" && n1 === n2;
+  };
+
+  const checkUserPermission = (service: ServiceItem, client: ConfirmedClient | undefined, currentUser: any, isUserAdmin: boolean) => {
+    if (!currentUser) return false;
+    if (isUserAdmin) return true;
+    
+    const uid = normalizeId(currentUser.id);
+    const uemail = normalizeId(currentUser.email);
+    const uname = normalizeId(currentUser.name);
+    
+    // Find the official employee record for the current user to get their "official" employee ID
+    const currentEmployee = employees.find(e => 
+      normalizeId(e.id) === uid || 
+      normalizeId(e.email) === uemail ||
+      normalizeId(e.name) === uname
+    );
+    
+    const empId = currentEmployee ? normalizeId(currentEmployee.id) : uid;
+    
+    const isMatch = (id: any) => {
+      const nid = normalizeId(id);
+      if (!nid) return false;
+      return nid === uid || nid === empId || nid === uemail || nid === uname;
+    };
+
+    const inList = (list: any) => {
+      let safeList: any[] = [];
+      if (Array.isArray(list)) {
+        safeList = list;
+      } else if (typeof list === 'string' && list.trim() !== "") {
+        if (list.startsWith('[') && list.endsWith(']')) {
+          try { safeList = JSON.parse(list); } catch { safeList = [list]; }
+        } else {
+          safeList = list.split(',').map(s => s.trim());
+        }
+      }
+      
+      if (!Array.isArray(safeList)) return false;
+      return safeList.some(item => isMatch(item));
+    };
+
+    return (
+      // Direct service assignees
+      inList(service.serviceAssignees) ||
+      inList((service as any).executionEmployeeIds) ||
+      isMatch(service.assignedTo) ||
+      // Sales owner of the service
+      isMatch(service.salesEmployeeId) ||
+      isMatch((service as any).salesEmployeeId) ||
+      // Client sales owners
+      isMatch(client?.salesOwnerId) ||
+      inList(client?.salesOwners) ||
+      // Client assigned managers/staff
+      isMatch(client?.assignedManagerId) ||
+      inList(client?.assignedStaff)
+    );
+  };
+
+  // Get employee name with robust matching
   const getEmployeeName = (employeeId: string) => {
-    const employee = employees.find(e => e.id === employeeId);
-    if (!employee) return employeeId;
-    return language === "ar" ? employee.name : (employee.nameEn || employee.name);
+    if (!employeeId || typeof employeeId !== 'string') return "";
+    const nid = normalizeId(employeeId);
+    
+    // 1. Try to find in the employees list
+    const employee = employees.find(e => 
+      normalizeId(e.id) === nid || 
+      normalizeId(e.email) === nid || 
+      normalizeId(e.name) === nid ||
+      normalizeId(e.nameEn) === nid
+    );
+    
+    if (employee) {
+      return language === "ar" ? employee.name : (employee.nameEn || employee.name);
+    }
+    
+    // 2. Try to match with the current user
+    if (user && (
+      normalizeId(user.id) === nid || 
+      normalizeId(user.email) === nid || 
+      normalizeId(user.name) === nid
+    )) {
+      return language === "ar" ? user.name : (user.nameEn || user.name);
+    }
+    
+    // 3. Fallback: if it's a UUID or long random string, show "Unknown" instead of the raw ID
+    // Check for UUID pattern or just length
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(nid);
+    if (isUuid || (nid.length > 20 && nid.includes('-'))) {
+      return language === "ar" ? "موظف مجهول" : "Unknown Staff";
+    }
+    
+    // 4. If it's already a name (doesn't look like an ID), return it as is
+    if (nid.length > 0 && !/[0-9a-f]{8}/i.test(nid)) {
+       return employeeId;
+    }
+    
+    return employeeId;
+  };
+
+  // Get sales owner for a service
+  const getSalesOwnerDisplay = (service: ServiceItem, client: ConfirmedClient | undefined) => {
+    if (!client) return (language === "ar" ? "غير محدد" : "Unassigned");
+    
+    // Collect all potential sales owner IDs
+    const rawIds = [
+      (service as any).salesEmployeeId,
+      ...(client.salesOwners || []),
+      client.salesOwnerId
+    ].filter(Boolean);
+    
+    // Deduplicate IDs
+    const uniqueIds = Array.from(new Set(rawIds.map(id => normalizeId(id))));
+    
+    // Resolve names
+    const names = uniqueIds
+      .map(id => getEmployeeName(id))
+      .filter(name => name && name !== "" && name !== (language === "ar" ? "موظف مجهول" : "Unknown Staff"));
+    
+    if (names.length > 0) {
+      // Deduplicate names (in case different IDs point to same name)
+      return Array.from(new Set(names)).join(", ");
+    }
+    
+    return language === "ar" ? "غير محدد" : "Unassigned";
   };
 
   // Calculate days remaining/overdue
@@ -457,12 +629,12 @@ export default function WorkTrackingPage() {
 
   // Get deliverable label by key from template (for bilingual support)
   const getDeliverableLabelByKey = (packageId: string | undefined, key: string): { ar: string; en: string } => {
-    const template = deliverablesTemplates[packageId || "main-pkg-6"];
+    const template = (packageId ? deliverablesTemplates[packageId] : undefined) ?? deliverablesTemplates["main-pkg-6"];
     const item = template?.find(t => t.key === key);
     return item ? { ar: item.labelAr, en: item.labelEn } : { ar: key, en: key };
   };
 
-  // Get deliverables for a service (from service or template)
+  // Get deliverables for a service (persisted -> sub package template -> main package template)
   const getDeliverables = (service: ServiceItem): ServiceDeliverable[] => {
     if (service.deliverables && service.deliverables.length > 0) {
       // For existing deliverables, derive labels from template at render time
@@ -476,9 +648,25 @@ export default function WorkTrackingPage() {
         };
       });
     }
-    
+    // Try sub package deliverables if present
+    if (service.subPackageId) {
+      const sp = subPackages.find(p => p.id === service.subPackageId);
+      if (sp && Array.isArray(sp.deliverables) && sp.deliverables.length > 0) {
+        return sp.deliverables.map((t: any) => ({
+          key: t.key,
+          label: language === "ar" ? (t.labelAr || t.label) : (t.labelEn || t.label || t.labelAr),
+          labelAr: t.labelAr || t.label || "",
+          labelEn: t.labelEn || t.label || "",
+          target: t.target ? Number(t.target) : (t.value !== undefined && !isNaN(Number(t.value)) ? Number(t.value) : (t.isBoolean ? 1 : 0)),
+          completed: 0,
+          isBoolean: !!t.isBoolean,
+        }));
+      }
+    }
+
     // Generate from template based on main package
-    const template = deliverablesTemplates[service.mainPackageId || "main-pkg-6"];
+    const template = ((service.mainPackageId ? deliverablesTemplates[service.mainPackageId] : undefined) 
+      ?? deliverablesTemplates["main-pkg-6"]);
     if (template) {
       return template.map(t => ({
         key: t.key,
@@ -502,7 +690,11 @@ export default function WorkTrackingPage() {
     if (deliverables.length === 0) return 0;
     
     const progress = deliverables.reduce((acc, d) => {
-      return acc + (d.target > 0 ? (d.completed / d.target) * 100 : 0);
+      // If target is > 0, calculate percentage. If target is 0 but completed > 0, count as full?
+      // Or just ignore target 0 items? Let's assume if target is 0, it contributes 0 unless completed > 0 (maybe boolean like).
+      // Better: if target is 0, assume it's boolean-like where any completion is 100%? Or maybe just 0.
+      // Let's stick to safe division.
+      return acc + (d.target > 0 ? Math.min((d.completed / d.target) * 100, 100) : (d.completed > 0 ? 100 : 0));
     }, 0) / deliverables.length;
     
     return Math.round(progress);
@@ -515,9 +707,20 @@ export default function WorkTrackingPage() {
     const service = services.find(s => s.id === serviceId);
     if (!service) return;
 
+    // Permissions Check
+    const isUserAdmin = isAdmin || normalizeId(user?.role) === 'admin';
+    const canEdit = checkUserPermission(service, client, user, isUserAdmin);
+    
+    if (!canEdit) {
+       console.warn("User does not have permission to update deliverable");
+       return;
+    }
+
     let deliverables = service.deliverables || getDeliverables(service);
+    // Allow any value, don't clamp to target if target is wrong (0)
     deliverables = (Array.isArray(deliverables) ? deliverables : []).map(d => 
-      d.key === deliverableKey ? { ...d, completed: Math.min(newCompleted, d.target) } : d
+      // Keep original target if it exists, don't overwrite with 0 or missing
+      d.key === deliverableKey ? { ...d, completed: newCompleted, target: d.target > 0 ? d.target : (d.target || 0) } : d
     );
 
     updateService(clientId, serviceId, { deliverables });
@@ -530,9 +733,18 @@ export default function WorkTrackingPage() {
     const service = services.find(s => s.id === serviceId);
     if (!service) return;
 
+    // Permissions Check
+    const isUserAdmin = isAdmin || normalizeId(user?.role) === 'admin';
+    const canEdit = checkUserPermission(service, client, user, isUserAdmin);
+    
+    if (!canEdit) {
+       console.warn("User does not have permission to toggle deliverable");
+       return;
+    }
+
     let deliverables = service.deliverables || getDeliverables(service);
     deliverables = (Array.isArray(deliverables) ? deliverables : []).map(d => 
-      d.key === deliverableKey ? { ...d, completed: d.completed === 0 ? 1 : 0 } : d
+      d.key === deliverableKey ? { ...d, completed: d.completed === 0 ? 1 : 0, target: d.target > 0 ? d.target : (d.target || 0) } : d
     );
 
     updateService(clientId, serviceId, { deliverables });
@@ -603,12 +815,18 @@ export default function WorkTrackingPage() {
     
     // Check permissions
     // Admin can edit everything
-    // Assigned user can edit deliverables
-    // Mark Completed is Admin only
+    // Assigned users (execution team) can edit deliverables
+    // Sales owner can edit deliverables
+    // Assigned manager can edit deliverables
     
-    const isAssigned = user && service.serviceAssignees && service.serviceAssignees.includes(user.id);
-    const canEditDeliverables = isAdmin || isAssigned;
-    const canMarkCompleted = isAdmin;
+    // Find the client to check roles
+    const client = clients.find(c => c.id === clientId);
+    
+    // Check permissions - Admin, Assigned (Exec), Sales Owner, Manager
+    // Use the robust permission check logic
+    const isUserAdmin = isAdmin || normalizeId(user?.role) === 'admin';
+    const canEditDeliverables = checkUserPermission(service, client, user, isUserAdmin);
+    const canMarkCompleted = canEditDeliverables; // Anyone who can edit can mark completed
 
     return (
       <div 
@@ -623,10 +841,14 @@ export default function WorkTrackingPage() {
               <Package className="h-4 w-4 text-primary" />
               <h4 className="font-semibold">{getPackageName(service)}</h4>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
               <span className="flex items-center gap-1">
                 <Calendar className="h-3 w-3" />
                 {service.startDate} → {service.dueDate}
+              </span>
+              <span className="flex items-center gap-1">
+                <User className="h-3 w-3" />
+                {language === "ar" ? "مسؤول المبيعات:" : "Sales Owner:"} {getSalesOwnerDisplay(service, client)}
               </span>
               {daysInfo !== null && (
                 <Badge 
@@ -655,66 +877,136 @@ export default function WorkTrackingPage() {
         </div>
 
         {/* Deliverables */}
-        {deliverables.length > 0 && (
-          <div className="space-y-2 mb-3">
-            <p className="text-sm font-medium text-muted-foreground">{content.deliverables}:</p>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        <div className="space-y-2 mb-3">
+          <p className="text-sm font-medium text-muted-foreground">{content.deliverables}:</p>
+          {deliverables.length === 0 ? (
+            <div className="text-sm text-muted-foreground">
+              {content.noDeliverables}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-2">
               {deliverables.map(deliverable => {
-                const IconComponent = getDeliverableIcon(
-                  deliverablesTemplates[service.mainPackageId || "main-pkg-6"]?.find(t => t.key === deliverable.key)?.icon || "file"
-                );
+                // Find template for fallback translations and icon
+                const template = deliverablesTemplates[service.mainPackageId || "main-pkg-6"]?.find(t => t.key === deliverable.key);
+                
+                // Find definition in subPackage (SSOT) - DIRECT LOOKUP
+                const sp = service.subPackageId ? subPackages.find(p => p.id === service.subPackageId) : undefined;
+                const pkgDeliverable = sp?.deliverables?.find(d => d.key === deliverable.key);
+                
+                // Merge metadata: prioritize Package Definition > Service Data > Template > Defaults
+                const iconName = pkgDeliverable?.icon || deliverable.icon || template?.icon || "file";
+                const IconComponent = getDeliverableIcon(iconName);
+                
+                const labelAr = pkgDeliverable?.labelAr || deliverable.labelAr;
+                const labelEn = pkgDeliverable?.labelEn || deliverable.labelEn;
+                const baseLabel = pkgDeliverable?.label || deliverable.label;
+                
+                // Determine label with robust fallback strategy
+                let displayLabel = "";
+                if (language === "ar") {
+                   // Prefer explicit Arabic label, then template Arabic label, then generic label
+                   displayLabel = labelAr || template?.labelAr || baseLabel || "";
+                } else {
+                   displayLabel = labelEn || template?.labelEn || baseLabel || "";
+                }
+                
+                // If displayLabel is still empty or looks like a key, use stricter fallback
+                if (!displayLabel || displayLabel.startsWith('del-') || displayLabel === deliverable.key) {
+                   // If we have a fallback from template, use it
+                   if (template) {
+                     displayLabel = language === "ar" ? template.labelAr : template.labelEn;
+                   } else if (!deliverable.key.startsWith('del-')) {
+                     // Only show key if it's NOT a timestamp-based key
+                     displayLabel = deliverable.key; 
+                   } else {
+                     displayLabel = language === "ar" ? "عنصر جديد" : "New Item";
+                   }
+                }
                 
                 return (
                   <div 
                     key={deliverable.key}
                     className={cn(
                       "flex items-center gap-2 p-2 rounded-md border text-sm",
-                      deliverable.completed >= deliverable.target 
+                      deliverable.completed >= deliverable.target && deliverable.target > 0
                         ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800"
                         : "bg-card"
                     )}
                   >
                     <IconComponent className="h-4 w-4 flex-shrink-0" />
-                    <span className="flex-1 truncate">
-                      {language === "ar" ? deliverable.label : (deliverable.labelEn || deliverable.label)}
+                    <span className="flex-1">
+                      {displayLabel}
                     </span>
                     {deliverable.isBoolean ? (
-                      <Button
-                        size="sm"
-                        variant={deliverable.completed > 0 ? "default" : "outline"}
-                        className="h-6 w-6 p-0"
-                        onClick={() => handleToggleDeliverable(clientId, service.id, deliverable.key)}
-                        disabled={isCompleted || !canEditDeliverables}
-                        data-testid={`toggle-${service.id}-${deliverable.key}`}
-                      >
-                        <Check className="h-3 w-3" />
-                      </Button>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-xs text-muted-foreground">{language === "ar" ? "تم" : "Done"}</span>
+                            <Switch
+                              checked={deliverable.completed > 0}
+                              onCheckedChange={(checked) => handleUpdateDeliverable(
+                                clientId,
+                                service.id,
+                                deliverable.key,
+                                checked ? 1 : 0
+                              )}
+                              disabled={isCompleted || !canEditDeliverables}
+                              data-testid={`toggle-${service.id}-${deliverable.key}`}
+                              className="scale-75 origin-right rtl:origin-left"
+                            />
+                          </div>
                     ) : (
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-shrink-0">
                         <Input
                           type="number"
                           min={0}
-                          max={deliverable.target}
+                          max={deliverable.target > 0 ? deliverable.target : undefined}
                           value={deliverable.completed}
-                          onChange={(e) => handleUpdateDeliverable(
-                            clientId, 
-                            service.id, 
-                            deliverable.key, 
-                            parseInt(e.target.value) || 0
-                          )}
-                          className="h-6 w-12 text-center text-sm p-1"
+                          onChange={(e) => {
+                            let val = parseInt(e.target.value);
+                            if (!isNaN(val)) {
+                              // If target is set, clamp value
+                              if (deliverable.target > 0) {
+                                val = Math.min(val, deliverable.target);
+                              }
+                              handleUpdateDeliverable(
+                                clientId, 
+                                service.id, 
+                                deliverable.key, 
+                                val
+                              );
+                            }
+                          }}
+                          className="h-7 w-16 text-center text-sm p-1"
                           disabled={isCompleted || !canEditDeliverables}
                           data-testid={`input-${service.id}-${deliverable.key}`}
                         />
-                        <span className="text-muted-foreground">/{deliverable.target}</span>
+                        <span className="text-muted-foreground text-xs whitespace-nowrap">/ {deliverable.target}</span>
                       </div>
                     )}
                   </div>
                 );
               })}
             </div>
-          </div>
-        )}
+          )}
+        </div>
+
+        {/* Platforms (from sub package if available) */}
+        {(() => {
+          const sp = service.subPackageId ? subPackages.find(p => p.id === service.subPackageId) : undefined;
+          const plats: string[] = Array.isArray(sp?.platforms) ? sp!.platforms : [];
+          if (!plats || plats.length === 0) return null;
+          return (
+            <div className="mb-3">
+              <p className="text-sm font-medium text-muted-foreground">{language === "ar" ? "المنصات" : "Platforms"}</p>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {plats.map((pl) => (
+                  <Badge key={pl} variant="secondary" className="text-xs">
+                    {pl}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Execution Team */}
         {service.serviceAssignees && service.serviceAssignees.length > 0 && (
@@ -790,12 +1082,20 @@ export default function WorkTrackingPage() {
                         {client.country}
                       </span>
                     )}
-                    {client.salesOwners && client.salesOwners.length > 0 && (
-                      <span className="flex items-center gap-1">
-                        <User className="h-3 w-3" />
-                        {content.salesOwner}: {getEmployeeName(client.salesOwners[0])}
-                      </span>
-                    )}
+                    {(() => {
+                      const owners = Array.from(new Set((client.salesOwners || []).map(id => normalizeId(id))))
+                        .map(sid => getEmployeeName(sid))
+                        .filter(name => name && name !== "" && name !== (language === "ar" ? "موظف مجهول" : "Unknown Staff"));
+                      
+                      if (owners.length === 0) return null;
+                      
+                      return (
+                        <span className="flex items-center gap-1">
+                          <User className="h-3 w-3" />
+                          {content.salesOwner}: {owners.join(", ")}
+                        </span>
+                      );
+                    })()}
                   </div>
                 </div>
 

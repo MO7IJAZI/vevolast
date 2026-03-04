@@ -67,7 +67,7 @@ import {
 } from "@/components/ui/collapsible";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCurrency, type Currency } from "@/contexts/CurrencyContext";
-import { useData, serviceCategories as packageCategories, type Lead, type ConfirmedClient, type ServiceItem, type ServiceStatus, type LeadStage, type PackageItem, type MainPackage, type SubPackage, type Employee } from "@/contexts/DataContext";
+import { useData, type Lead, type ConfirmedClient, type ServiceItem, type ServiceStatus, type LeadStage, type PackageItem, type MainPackage, type SubPackage, type Employee } from "@/contexts/DataContext";
 import { DateInput } from "@/components/ui/date-picker";
 import { cn } from "@/lib/utils";
 import { EmployeeChips } from "@/components/employee-chip";
@@ -210,7 +210,8 @@ export default function ClientsPage() {
   const { language } = useLanguage();
   const { formatCurrency, convertAmount, currency: displayCurrency } = useCurrency();
   const defaultCurrency = displayCurrency;
-  const searchString = useSearch();
+  // Use window.location.search directly to avoid potential wouter hook issues
+  const searchString = window.location.search;
   const [, setLocation] = useLocation();
   const {
     leads,
@@ -244,19 +245,25 @@ export default function ClientsPage() {
   
   // Handle URL query params for navigation from dashboard widgets
   useEffect(() => {
-    const params = new URLSearchParams(searchString);
-    const tab = params.get("tab");
-    const filter = params.get("filter");
-    
-    if (tab === "confirmed" || tab === "clients") {
-      setMainTab("clients");
-      if (filter === "active") {
-        setShowArchived(false);
+    try {
+      // Check if searchString is a string before using URLSearchParams
+      const safeSearchString = typeof searchString === 'string' ? searchString : '';
+      const params = new URLSearchParams(safeSearchString);
+      const tab = params.get("tab");
+      const filter = params.get("filter");
+      
+      if (tab === "confirmed" || tab === "clients") {
+        setMainTab("clients");
+        if (filter === "active") {
+          setShowArchived(false);
+        }
+      } else if (tab === "leads") {
+        setMainTab("leads");
+      } else if (tab === "completed") {
+        setMainTab("completed");
       }
-    } else if (tab === "leads") {
-      setMainTab("leads");
-    } else if (tab === "completed") {
-      setMainTab("completed");
+    } catch (e) {
+      console.error("Error parsing URL params:", e);
     }
   }, [searchString]);
   const [showArchived, setShowArchived] = useState(false);
@@ -637,7 +644,7 @@ export default function ClientsPage() {
         country: lead.country || "",
         stage: lead.stage,
         expectedCloseDate: lead.expectedCloseDate || "",
-        estimatedValue: lead.estimatedValue?.toString() || "",
+        estimatedValue: lead.estimatedValue != null ? lead.estimatedValue.toString() : "",
         currency: (lead.currency as Currency) || defaultCurrency,
         notes: lead.notes || "",
         negotiatorId: lead.negotiatorId || "",
@@ -808,7 +815,7 @@ export default function ClientsPage() {
         selectedPackageId: subPackageId,
         serviceType,
         serviceName: language === "ar" ? subPkg.name : (subPkg.nameEn || subPkg.name),
-        price: subPkg.price.toString(),
+        price: subPkg.price != null ? subPkg.price.toString() : "",
         currency: subPkg.currency,
       }));
     }
@@ -834,7 +841,7 @@ export default function ClientsPage() {
         selectedPackageId: packageId,
         serviceType: pkg.category,
         serviceName: language === "ar" ? pkg.name : (pkg.nameEn || pkg.name),
-        price: pkg.price.toString(),
+        price: pkg.price != null ? pkg.price.toString() : "",
         currency: pkg.currency,
       }));
     }
@@ -984,7 +991,7 @@ export default function ClientsPage() {
         serviceName: service.serviceName,
         startDate: service.startDate,
         dueDate: service.dueDate,
-        price: service.price?.toString() || "",
+        price: service.price != null ? service.price.toString() : "",
         currency: (service.currency as Currency) || defaultCurrency,
         assignedTo: service.assignedTo || "",
         serviceAssignees: service.serviceAssignees || [],

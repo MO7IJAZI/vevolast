@@ -22,18 +22,43 @@ export function EmployeeChip({
   const { language } = useLanguage();
   const { employees } = useData();
 
-  const employee = employees.find((e) => e.id === employeeId);
-  if (!employee) return null;
-
-  const name = language === "ar" ? employee.name : (employee.nameEn || employee.name);
-  const role = language === "ar" ? (employee.roleAr || employee.role) : employee.role;
-
   // Use semantic colors without custom hover states - Badge handles hover interactions
   const variantStyles = {
     sales: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300",
     assigned: "bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300",
     service: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
   };
+
+  const employee = employees.find((e) => 
+    e.id === employeeId || 
+    e.email === employeeId || 
+    e.name === employeeId
+  );
+  
+  if (!employee) {
+    // Robust fallback for missing employee
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(employeeId);
+    const displayName = isUuid ? (language === "ar" ? "موظف مجهول" : "Unknown Staff") : employeeId;
+    
+    return (
+      <Badge
+        variant="outline"
+        className={cn(
+          "border-0 font-normal gap-1.5 pe-2",
+          variantStyles[variant],
+          size === "sm" ? "text-xs ps-0.5" : "text-sm ps-1"
+        )}
+      >
+        {displayName}
+      </Badge>
+    );
+  }
+
+  const name = language === "ar" ? employee.name : (employee.nameEn || employee.name);
+  // Robust role fallback
+  const role = language === "ar" 
+    ? (employee.roleAr || employee.role || employee.department || "N/A") 
+    : (employee.role || employee.department || "N/A");
 
   const handleClick = () => {
     if (onClick && employee) {
@@ -83,11 +108,42 @@ export function EmployeeChips({
   className,
 }: EmployeeChipsProps) {
   const { language } = useLanguage();
+  const { employees } = useData();
+  
+  // Deduplicate and filter IDs to avoid showing "Unknown Staff" alongside resolved names
   const safeIds = Array.isArray(employeeIds) ? employeeIds : [];
-  const visibleIds = maxVisible ? safeIds.slice(0, maxVisible) : safeIds;
-  const hiddenCount = maxVisible ? Math.max(0, safeIds.length - maxVisible) : 0;
+  
+  // Resolve all IDs to their display names/employees
+  const resolved = safeIds.map(id => {
+    const emp = employees.find(e => e.id === id || e.email === id || e.name === id);
+    return { id, employee: emp };
+  });
 
-  if (safeIds.length === 0) return null;
+  // Filter out IDs that resolve to "Unknown Staff" if we have at least one valid employee
+  // OR just deduplicate based on employee ID if multiple IDs point to same employee
+  const uniqueEmployees = new Map();
+  const unknownIds = new Set();
+
+  resolved.forEach(item => {
+    if (item.employee) {
+      uniqueEmployees.set(item.employee.id, item.id);
+    } else {
+      unknownIds.add(item.id);
+    }
+  });
+
+  let finalIds = Array.from(uniqueEmployees.values());
+  
+  // Only add unknown IDs if we have NO valid employees, or if it's explicitly needed
+  // For now, let's just show unknown IDs only if they are the ONLY ones
+  if (finalIds.length === 0) {
+    finalIds = Array.from(unknownIds);
+  }
+
+  const visibleIds = maxVisible ? finalIds.slice(0, maxVisible) : finalIds;
+  const hiddenCount = maxVisible ? Math.max(0, finalIds.length - maxVisible) : 0;
+
+  if (finalIds.length === 0) return null;
 
   return (
     <div className={cn("flex flex-wrap gap-1", className)}>

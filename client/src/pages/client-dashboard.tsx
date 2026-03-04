@@ -202,7 +202,7 @@ export default function ClientDashboard() {
             </div>
           </div>
           <Button variant="ghost" size="sm" onClick={handleLogout} data-testid="button-logout">
-            <LogOut className="h-4 w-4 me-2" />
+            <LogOut className="h-4 w-4 me-2 rtl:rotate-180" />
             {content.logout}
           </Button>
         </div>
@@ -301,7 +301,7 @@ export default function ClientDashboard() {
                         {content.date}: {invoice.issueDate}
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-start">
                       <div className="font-bold mb-1">
                         {invoice.amount.toLocaleString()} {invoice.currency}
                       </div>

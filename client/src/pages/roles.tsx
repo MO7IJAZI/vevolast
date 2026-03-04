@@ -25,6 +25,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Loader2, Plus, Pencil, Trash2, Shield, AlertTriangle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { ALL_PERMISSIONS, type Role } from "@shared/schema";
+import { resourceTranslations, actionTranslations } from "@/lib/permission-translations";
 
 export default function RolesPage() {
   const { language } = useLanguage();
@@ -129,7 +130,7 @@ export default function RolesPage() {
         </div>
         <HasPermission permission="roles:create">
           <Button onClick={() => { setEditingRole(null); setIsDialogOpen(true); }}>
-            <Plus className="h-4 w-4 mr-2" />
+            <Plus className="h-4 w-4 me-2" />
             {language === "ar" ? "إضافة دور جديد" : "Add New Role"}
           </Button>
         </HasPermission>
@@ -357,7 +358,11 @@ function RoleDialog({
               {Object.entries(ALL_PERMISSIONS).map(([resource, actions]) => (
                 <div key={resource} className="border rounded p-4">
                   <div className="flex items-center justify-between mb-4">
-                    <h4 className="font-semibold capitalize text-lg">{resource.replace('_', ' ')}</h4>
+                    <h4 className="font-semibold capitalize text-lg">
+                      {language === "ar" 
+                        ? resourceTranslations[resource]?.ar || resource.replace('_', ' ')
+                        : resourceTranslations[resource]?.en || resource.replace('_', ' ')}
+                    </h4>
                     <Button 
                       type="button" 
                       variant="outline" 
@@ -373,14 +378,16 @@ function RoleDialog({
                       const permission = `${resource}:${action}`;
                       const isChecked = formData.permissions.includes(permission);
                       return (
-                        <div key={action} className="flex items-center space-x-2">
+                        <div key={action} className="flex items-center gap-2">
                           <Checkbox 
                             id={permission} 
                             checked={isChecked}
                             onCheckedChange={() => togglePermission(resource, action)}
                           />
                           <Label htmlFor={permission} className="capitalize cursor-pointer">
-                            {action.replace('_', ' ')}
+                            {language === "ar" 
+                              ? actionTranslations[action]?.ar || action.replace('_', ' ')
+                              : actionTranslations[action]?.en || action.replace('_', ' ')}
                           </Label>
                         </div>
                       );

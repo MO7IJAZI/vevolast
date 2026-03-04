@@ -213,6 +213,63 @@ export function requirePermission(resource: string, action: string) {
   };
 }
 
+export function requireAnyPermission(requiredPermissions: string[]) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session?.userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (req.session.isClientUser) {
+      return res.status(403).json({ error: "Staff access required" });
+    }
+
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+      if (!user || !user.isActive) {
+        req.session.destroy(() => {});
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+
+      let roleName = "employee";
+      let rolePermissions: string[] = [];
+      if (user.roleId) {
+        const [role] = await db.select().from(roles).where(eq(roles.id, user.roleId)).limit(1);
+        if (role) {
+          roleName = role.name;
+          rolePermissions = normalizePermissions(role.permissions);
+        }
+      }
+      if (roleName === "admin") {
+        req.session.userRole = "admin";
+        req.session.userPermissions = getAllPermissions();
+        return next();
+      }
+
+      const userSpecific = normalizePermissions(user.permissions);
+      const allPermissions = Array.from(new Set([...(rolePermissions || []), ...userSpecific]));
+      req.session.userRole = roleName;
+      req.session.userRoleId = user.roleId || "";
+      req.session.userPermissions = allPermissions;
+
+      const hasAny = requiredPermissions.some((perm) => {
+        if (!perm.includes(":")) return allPermissions.includes(perm);
+        const [resource, action] = perm.split(":");
+        if (action === "view") {
+          // Allow any permission on same resource to pass for view
+          return allPermissions.some((p) => typeof p === "string" && p.startsWith(`${resource}:`));
+        }
+        return allPermissions.includes(perm);
+      });
+
+      if (!hasAny) {
+        return res.status(403).json({ error: `Permission denied: one of [${requiredPermissions.join(", ")}]` });
+      }
+      next();
+    } catch (e) {
+      return res.status(500).json({ error: "Auth check failed" });
+    }
+  };
+}
+
 export async function seedAdminUser() {
   const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const adminPassword = process.env.ADMIN_PASSWORD;

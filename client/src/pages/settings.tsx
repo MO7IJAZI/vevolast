@@ -618,15 +618,16 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div className="space-y-3">
         <Label>{t.enabledGoalTypes}</Label>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {goalTypes.map((type) => (
-            <div key={type.key} className="flex items-center space-x-2 space-x-reverse">
+            <div key={type.key} className="flex items-center gap-2 p-2 border rounded-md hover:bg-muted/30 transition-colors">
               <Switch
+                className="scale-90 origin-right rtl:origin-left"
                 checked={settings.enabledGoalTypes.includes(type.key)}
                 onCheckedChange={() => toggleGoalType(type.key)}
                 data-testid={`switch-goal-type-${type.key}`}
               />
-              <Label className="font-normal">{type.label}</Label>
+              <Label className="font-normal cursor-pointer flex-1 truncate">{type.label}</Label>
             </div>
           ))}
         </div>
@@ -1178,22 +1179,22 @@ export default function SettingsPage() {
   return (
     <div className="p-4 sm:p-8 max-w-7xl mx-auto pb-24 lg:pb-8">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight mb-2 flex items-center gap-3">
-            <Settings className="h-8 w-8 text-primary" />
-            {t.title}
+        <div className="min-w-0 flex-1">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight mb-2 flex items-center gap-3 truncate">
+            <Settings className="h-7 w-7 sm:h-8 sm:w-8 text-primary shrink-0" />
+            <span className="truncate">{t.title}</span>
           </h1>
-          <p className="text-muted-foreground">{t.subtitle}</p>
+          <p className="text-muted-foreground text-sm sm:text-base truncate">{t.subtitle}</p>
         </div>
         <Button 
           size="lg" 
-          className="gap-2 h-12 px-8 font-semibold shadow-lg hover-elevate"
+          className="gap-2 h-11 sm:h-12 px-6 sm:px-8 font-semibold shadow-lg hover-elevate w-full sm:w-auto shrink-0"
           onClick={handleSave}
           disabled={saveSettingsMutation.isPending}
           data-testid="button-save-settings"
         >
           {saveSettingsMutation.isPending ? <RefreshCw className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}
-          {t.save}
+          <span className="whitespace-nowrap">{t.save}</span>
         </Button>
       </div>
 
@@ -1212,8 +1213,7 @@ export default function SettingsPage() {
                   variant={isActive ? "secondary" : "ghost"}
                   className={cn(
                     "justify-start gap-3 h-12",
-                    isActive && "bg-secondary font-semibold text-primary",
-                    language === "ar" && "flex-row-reverse text-right"
+                    isActive && "bg-secondary font-semibold text-primary"
                   )}
                   onClick={() => toggleSection(section.id)}
                   data-testid={`nav-section-${section.id}`}

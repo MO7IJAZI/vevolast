@@ -26,7 +26,7 @@ import {
 import { z } from "zod";
 import { registerObjectStorageRoutes } from "./replit_integrations/object_storage/routes";
 import { getExchangeRates, convertCurrency, refreshExchangeRates } from "./exchangeRates";
-import { requireAdmin, requirePermission, requireAuth } from "./auth";
+import { requireAdmin, requirePermission, requireAuth, requireAnyPermission } from "./auth";
 import { safeJsonParse } from "./utils/safeJson";
 
 export async function registerRoutes(
@@ -113,7 +113,8 @@ export async function registerRoutes(
   });
 
   // Clients API
-  app.get("/api/clients", requirePermission("clients", "view"), async (req, res) => {
+  // Allow viewing clients for either Clients view permission OR Work Tracking view permission
+  app.get("/api/clients", requireAnyPermission(["clients:view", "work_tracking:view"]), async (req, res) => {
     try {
       const clients = await storage.getClients();
       res.json(clients);
@@ -123,7 +124,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/clients/:id", requirePermission("clients", "view"), async (req, res) => {
+  app.get("/api/clients/:id", requireAnyPermission(["clients:view", "work_tracking:view"]), async (req, res) => {
     try {
       const client = await storage.getClient(req.params.id);
       if (!client) {
@@ -249,8 +250,17 @@ export async function registerRoutes(
   app.patch("/api/client-services/:id", async (req, res) => {
     try {
       const { deliverables, ...serviceData } = req.body;
-      const validated = insertClientServiceSchema.partial().parse(serviceData);
-      const service = await storage.updateClientService(req.params.id, validated);
+      let service;
+
+      // Only update service fields if there are any to update
+      if (Object.keys(serviceData).length > 0) {
+        const validated = insertClientServiceSchema.partial().parse(serviceData);
+        service = await storage.updateClientService(req.params.id, validated);
+      } else {
+        // Just fetch the service if we are only updating deliverables
+        const services = await storage.getClientServices();
+        service = services.find(s => s.id === req.params.id);
+      }
       
       if (service && deliverables && Array.isArray(deliverables)) {
         await storage.updateServiceDeliverables(req.params.id, deliverables);
@@ -518,6 +528,29 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching employee:", error);
       res.status(500).json({ error: "Failed to fetch employee" });
+    }
+  });
+
+  // Reassign all references from employee -> to another (or null) and then delete employee
+  app.post("/api/employees/:id/reassign-and-delete", requirePermission("employees", "delete"), async (req, res) => {
+    try {
+      const { reassignTo, force } = req.body as { reassignTo?: string; force?: boolean };
+      const employeeId = req.params.id;
+
+      // Optional: if not forcing and no reassignment, check for dependencies and reject
+      if (!force && !reassignTo) {
+        return res.status(400).json({ error: "Reassignment target is required when not forcing deletion" });
+      }
+
+      await storage.reassignEmployeeReferences(employeeId, reassignTo || null);
+      const deleted = await storage.deleteEmployee(employeeId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Employee not found" });
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Error in reassign-and-delete:", error);
+      res.status(500).json({ error: "Failed to reassign and delete employee" });
     }
   });
 

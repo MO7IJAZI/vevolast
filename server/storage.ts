@@ -19,7 +19,7 @@ import {
   transactions, clientPayments, payrollPayments, employeeSalaries,
   calendarEvents, notifications, workSessions, clients, leads, clientServices,
   mainPackages, subPackages, invoices, employees, systemSettings,
-  users, goals, serviceDeliverables, workActivityLogs, serviceReports, clientUsers
+  users, goals, serviceDeliverables, workActivityLogs, serviceReports, clientUsers, roles, invitations, passwordResets
 } from "../shared/schema.js";
 import { db } from "./db";
 import { randomUUID } from "crypto";
@@ -948,6 +948,87 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
+  /**
+   * Reassign or unlink all references from one employee to another (or null).
+   * If toEmployeeId is null, the references will be removed/unassigned.
+   */
+  async reassignEmployeeReferences(fromEmployeeId: string, toEmployeeId: string | null): Promise<void> {
+    // 1) Clients: salesOwnerId, assignedManagerId, salesOwners (JSON), assignedStaff (JSON)
+    // Direct fields
+    if (toEmployeeId) {
+      await db.update(clients).set({ salesOwnerId: toEmployeeId }).where(eq(clients.salesOwnerId, fromEmployeeId));
+      await db.update(clients).set({ assignedManagerId: toEmployeeId }).where(eq(clients.assignedManagerId, fromEmployeeId));
+    } else {
+      await db.update(clients).set({ salesOwnerId: null }).where(eq(clients.salesOwnerId, fromEmployeeId));
+      await db.update(clients).set({ assignedManagerId: null }).where(eq(clients.assignedManagerId, fromEmployeeId));
+    }
+
+    // JSON arrays for clients
+    const allClients = await db.select().from(clients);
+    for (const c of allClients) {
+      let salesOwnersArr: string[] = Array.isArray(c.salesOwners) ? (c.salesOwners as any) : [];
+      let assignedStaffArr: string[] = Array.isArray(c.assignedStaff) ? (c.assignedStaff as any) : [];
+
+      const hasInSalesOwners = salesOwnersArr.includes(fromEmployeeId);
+      const hasInAssignedStaff = assignedStaffArr.includes(fromEmployeeId);
+
+      if (hasInSalesOwners || hasInAssignedStaff) {
+        if (toEmployeeId) {
+          if (hasInSalesOwners) {
+            salesOwnersArr = salesOwnersArr.filter((e) => e !== fromEmployeeId);
+            if (!salesOwnersArr.includes(toEmployeeId)) salesOwnersArr.push(toEmployeeId);
+          }
+          if (hasInAssignedStaff) {
+            assignedStaffArr = assignedStaffArr.filter((e) => e !== fromEmployeeId);
+            if (!assignedStaffArr.includes(toEmployeeId)) assignedStaffArr.push(toEmployeeId);
+          }
+        } else {
+          if (hasInSalesOwners) salesOwnersArr = salesOwnersArr.filter((e) => e !== fromEmployeeId);
+          if (hasInAssignedStaff) assignedStaffArr = assignedStaffArr.filter((e) => e !== fromEmployeeId);
+        }
+        await db.update(clients)
+          .set({ salesOwners: salesOwnersArr as any, assignedStaff: assignedStaffArr as any })
+          .where(eq(clients.id, c.id));
+      }
+    }
+
+    // 2) Client services: salesEmployeeId, execution_employee_ids (JSON)
+    if (toEmployeeId) {
+      await db.update(clientServices).set({ salesEmployeeId: toEmployeeId }).where(eq(clientServices.salesEmployeeId, fromEmployeeId));
+    } else {
+      await db.update(clientServices).set({ salesEmployeeId: null }).where(eq(clientServices.salesEmployeeId, fromEmployeeId));
+    }
+
+    const allServices = await db.select().from(clientServices);
+    for (const s of allServices) {
+      let execArr: string[] = Array.isArray(s.executionEmployeeIds) ? (s.executionEmployeeIds as any) : [];
+      if (execArr.includes(fromEmployeeId)) {
+        if (toEmployeeId) {
+          execArr = execArr.filter((e) => e !== fromEmployeeId);
+          if (!execArr.includes(toEmployeeId)) execArr.push(toEmployeeId);
+        } else {
+          execArr = execArr.filter((e) => e !== fromEmployeeId);
+        }
+        await db.update(clientServices)
+          .set({ executionEmployeeIds: execArr as any })
+          .where(eq(clientServices.id, s.id));
+      }
+    }
+
+    // 3) Leads: negotiatorId
+    if (toEmployeeId) {
+      await db.update(leads).set({ negotiatorId: toEmployeeId }).where(eq(leads.negotiatorId, fromEmployeeId));
+    } else {
+      await db.update(leads).set({ negotiatorId: null }).where(eq(leads.negotiatorId, fromEmployeeId));
+    }
+
+    // 4) Calendar events: employeeId
+    if (toEmployeeId) {
+      await db.update(calendarEvents).set({ employeeId: toEmployeeId }).where(eq(calendarEvents.employeeId, fromEmployeeId));
+    } else {
+      await db.update(calendarEvents).set({ employeeId: null }).where(eq(calendarEvents.employeeId, fromEmployeeId));
+    }
+  }
   async archiveClient(id: string): Promise<Client | undefined> {
     try {
       await db
@@ -1058,6 +1139,32 @@ export class DatabaseStorage implements IStorage {
       await tx.insert(clientServices).values({ ...serviceToCreate, id: serviceId });
       const [newService] = await tx.select().from(clientServices).where(eq(clientServices.id, serviceId));
 
+      // 3.b Seed deliverables from sub-package definition if exists
+      if (serviceToCreate.subPackageId) {
+        const [sp] = await tx.select().from(subPackages).where(eq(subPackages.id, serviceToCreate.subPackageId)).limit(1);
+        const spDeliverables: any[] = (sp?.deliverables && Array.isArray(sp.deliverables)) ? (sp.deliverables as any[]) : [];
+        for (const d of spDeliverables) {
+          const labelAr = d.labelAr || d.label || "";
+          const labelEn = d.labelEn || d.label || "";
+          let target = 0;
+          if (typeof d.target === "number") target = d.target;
+          else if (d.value !== undefined && !isNaN(Number(d.value))) target = Number(d.value);
+          else if (d.isBoolean) target = 1;
+
+          await tx.insert(serviceDeliverables).values({
+            id: randomUUID(),
+            serviceId,
+            key: d.key || (labelEn || labelAr || "item"),
+            labelAr: labelAr || (labelEn || "Item"),
+            labelEn: labelEn || (labelAr || "Item"),
+            target,
+            completed: 0,
+            icon: d.icon,
+            isBoolean: !!d.isBoolean
+          });
+        }
+      }
+
       return { client: newClient, service: newService };
     });
   }
@@ -1114,7 +1221,36 @@ export class DatabaseStorage implements IStorage {
       const serviceId = randomUUID();
       await db.insert(clientServices).values({ ...serviceToCreate, id: serviceId });
       const result = await db.select().from(clientServices).where(eq(clientServices.id, serviceId));
-      return result[0];
+      const created = result[0];
+
+      // Seed deliverables from sub-package if present and no explicit deliverables were provided
+      const incomingDeliverables: any[] = Array.isArray((service as any).deliverables) ? ((service as any).deliverables as any[]) : [];
+      if (incomingDeliverables.length === 0 && service.subPackageId) {
+        const [sp] = await db.select().from(subPackages).where(eq(subPackages.id, service.subPackageId)).limit(1);
+        const spDeliverables: any[] = (sp?.deliverables && Array.isArray(sp.deliverables)) ? (sp.deliverables as any[]) : [];
+        for (const d of spDeliverables) {
+          const labelAr = d.labelAr || d.label || "";
+          const labelEn = d.labelEn || d.label || "";
+          let target = 0;
+          if (typeof d.target === "number") target = d.target;
+          else if (d.value !== undefined && !isNaN(Number(d.value))) target = Number(d.value);
+          else if (d.isBoolean) target = 1;
+
+          await db.insert(serviceDeliverables).values({
+            id: randomUUID(),
+            serviceId,
+            key: d.key || (labelEn || labelAr || "item"),
+            labelAr: labelAr || (labelEn || "Item"),
+            labelEn: labelEn || (labelAr || "Item"),
+            target,
+            completed: 0,
+            icon: d.icon,
+            isBoolean: !!d.isBoolean,
+          });
+        }
+      }
+
+      return created;
     } catch (error) {
       console.error("Error creating client service:", error);
       throw error;
@@ -1385,7 +1521,10 @@ export class DatabaseStorage implements IStorage {
 
   async updateEmployee(id: string, employee: Partial<InsertEmployee>): Promise<Employee | undefined> {
     await db.transaction(async (tx) => {
-      // 1. Update Employee record
+      // 1. Load previous record for change detection
+      const [prevEmp] = await tx.select().from(employees).where(eq(employees.id, id)).limit(1);
+
+      // 2. Update Employee record
       await tx
         .update(employees)
         .set({ ...employee, updatedAt: new Date() })
@@ -1394,20 +1533,76 @@ export class DatabaseStorage implements IStorage {
       // Load the updated employee to get email for cross-sync
       const [updatedEmp] = await tx.select().from(employees).where(eq(employees.id, id)).limit(1);
 
-      // 2. If roleId is updated, sync it to the User record(s)
-      if (employee.roleId) {
-        // 2.a Users linked by employeeId
+      // 3. Sync roleId and isActive to User record(s) to ensure auth reflects employee status
+      const updateUserPayload: any = {};
+      if (typeof employee.roleId !== "undefined") {
+        updateUserPayload.roleId = employee.roleId;
+      }
+      if (typeof employee.isActive !== "undefined") {
+        updateUserPayload.isActive = employee.isActive;
+      }
+      if (Object.keys(updateUserPayload).length > 0) {
+        // Users linked by employeeId
         const linkedUsers = await tx.select().from(users).where(eq(users.employeeId, id));
         if (linkedUsers.length > 0) {
           await tx.update(users)
-            .set({ roleId: employee.roleId })
+            .set(updateUserPayload)
             .where(eq(users.employeeId, id));
         }
-        // 2.b Users linked by email (older accounts may not have employeeId set)
+        // Users linked by email (legacy)
         if (updatedEmp?.email) {
           await tx.update(users)
-            .set({ roleId: employee.roleId })
+            .set(updateUserPayload)
             .where(eq(users.email, updatedEmp.email));
+        }
+
+        if (typeof employee.isActive !== "undefined" && employee.isActive === false) {
+          const affected: string[] = [];
+          for (const u of linkedUsers) {
+            // @ts-ignore
+            if (u.id) affected.push(u.id as any);
+          }
+          if (updatedEmp?.email) {
+            const mailUsers = await tx.select().from(users).where(eq(users.email, updatedEmp.email));
+            for (const u of mailUsers) {
+              // @ts-ignore
+              if (u.id) affected.push(u.id as any);
+            }
+          }
+          const uniq = Array.from(new Set(affected));
+          for (const uid of uniq) {
+            await db.execute(sql.raw(`DELETE FROM \`sessions\` WHERE \`data\` LIKE '%"userId":"${uid}"%'`));
+          }
+        }
+      }
+
+      // 4. Notify admins on activation status changes
+      if (prevEmp && typeof employee.isActive !== "undefined" && updatedEmp) {
+        const statusChanged = employee.isActive !== prevEmp.isActive;
+        if (statusChanged) {
+          const adminRole = await tx.select().from(roles).where(eq(roles.name, "admin")).limit(1);
+          const adminRoleId = adminRole[0]?.id;
+          if (adminRoleId) {
+            const admins = await tx.select().from(users).where(eq(users.roleId, adminRoleId));
+            const titleAr = employee.isActive ? "تم تفعيل حساب موظف" : "تم تعطيل حساب موظف";
+            const titleEn = employee.isActive ? "Employee Account Activated" : "Employee Account Deactivated";
+            const msgAr = `${updatedEmp.name} (${updatedEmp.email})`;
+            const msgEn = `${updatedEmp.nameEn || updatedEmp.name} (${updatedEmp.email})`;
+            for (const au of admins) {
+              await tx.insert(notifications).values({
+                id: randomUUID(),
+                userId: au.id,
+                type: "system",
+                titleAr,
+                titleEn,
+                messageAr: msgAr,
+                messageEn: msgEn,
+                read: false,
+                relatedId: updatedEmp.id,
+                relatedType: "employee",
+              } as any);
+            }
+          }
         }
       }
     });
@@ -1418,6 +1613,10 @@ export class DatabaseStorage implements IStorage {
 
   async deleteEmployee(id: string): Promise<boolean> {
     return await db.transaction(async (tx) => {
+      // 0. Load employee to access email for legacy-linked users
+      const [emp] = await tx.select().from(employees).where(eq(employees.id, id)).limit(1);
+      const empEmail = emp?.email;
+
       // 1. Delete Payroll Payments and related Transactions
       const payments = await tx.select({ id: payrollPayments.id }).from(payrollPayments).where(eq(payrollPayments.employeeId, id));
       const paymentIds = payments.map(p => p.id);
@@ -1443,12 +1642,22 @@ export class DatabaseStorage implements IStorage {
 
       // 5. Delete Users (Hard Delete as requested)
       // First, we need to handle notifications or other user-related data if any
-      const employeeUsers = await tx.select({ id: users.id }).from(users).where(eq(users.employeeId, id));
-      const userIds = employeeUsers.map(u => u.id);
+      const byEmployeeId = await tx.select({ id: users.id }).from(users).where(eq(users.employeeId, id));
+      const byEmail = empEmail ? await tx.select({ id: users.id }).from(users).where(eq(users.email, empEmail)) : [];
+      const userIds = Array.from(new Set([...byEmployeeId, ...byEmail].map(u => u.id)));
 
       if (userIds.length > 0) {
+        for (const uid of userIds) {
+          await db.execute(sql.raw(`DELETE FROM \`sessions\` WHERE \`data\` LIKE '%"userId":"${uid}"%'`));
+        }
         await tx.delete(notifications).where(inArray(notifications.userId, userIds));
         await tx.delete(users).where(inArray(users.id, userIds));
+      }
+      
+      // 5.b Clean up pending invitations and password resets for this email (to allow re-inviting)
+      if (empEmail) {
+        await tx.delete(invitations).where(eq(invitations.email, empEmail));
+        await tx.delete(passwordResets).where(eq(passwordResets.email, empEmail));
       }
 
       // 6. Unlink Client Services (Sales Rep)

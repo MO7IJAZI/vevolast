@@ -140,8 +140,8 @@ export function SessionDetailsSheet({ open, onOpenChange, session }: SessionDeta
             {content.timeline}
           </h4>
 
-          <ScrollArea className="h-[400px] pr-4">
-            <div className="relative pl-6 border-l-2 border-muted ml-2 space-y-8 pb-4">
+          <ScrollArea className="h-[400px] pe-4">
+            <div className="relative ps-6 border-s-2 border-muted ms-2 space-y-8 pb-4">
               {segments.map((segment: any, index: number) => {
                 const isWork = segment.type === "work";
                 const Icon = isWork ? Play : Coffee;
@@ -150,7 +150,7 @@ export function SessionDetailsSheet({ open, onOpenChange, session }: SessionDeta
                   <div key={index} className="relative">
                     {/* Timeline dot */}
                     <div className={cn(
-                      "absolute -left-[31px] top-0 p-1.5 rounded-full border-2 border-background",
+                      "absolute -start-[31px] top-0 p-1.5 rounded-full border-2 border-background",
                       isWork ? "bg-green-100 text-green-600 dark:bg-green-900 dark:text-green-400" : "bg-yellow-100 text-yellow-600 dark:bg-yellow-900 dark:text-yellow-400"
                     )}>
                       <Icon className="h-3 w-3" />
@@ -161,7 +161,7 @@ export function SessionDetailsSheet({ open, onOpenChange, session }: SessionDeta
                         <span className="font-medium text-sm">
                           {isWork ? content.work : content.break}
                           {!isWork && segment.breakType && (
-                            <span className="text-muted-foreground font-normal ml-1">
+                            <span className="text-muted-foreground font-normal ms-1">
                               ({content.breakType[segment.breakType as keyof typeof content.breakType] || segment.breakType})
                             </span>
                           )}

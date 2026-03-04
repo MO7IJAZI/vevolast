@@ -40,6 +40,7 @@ export interface ServiceDeliverable {
   target: number;
   completed: number;
   isBoolean?: boolean; // For milestone-type deliverables
+  icon?: string;
 }
 
 export interface ServiceItem {
@@ -110,10 +111,13 @@ export interface ConfirmedClient {
 // Deliverable Item for Sub-Packages
 export interface Deliverable {
   key: string;
+  label?: string;
   labelAr: string;
   labelEn: string;
   value: string | number;
+  target?: number;
   icon?: string;
+  isBoolean?: boolean;
 }
 
 // Main Package (Category)
@@ -404,6 +408,7 @@ interface DataContextType {
   addEmployee: (employee: Omit<Employee, "id">) => Employee;
   updateEmployee: (id: string, updates: Partial<Employee>) => void;
   deleteEmployee: (id: string) => void;
+  reassignAndDeleteEmployee: (id: string, options: { reassignTo?: string; force?: boolean }) => Promise<void>;
 
   // Calendar
   events: CalendarEvent[];
@@ -1447,6 +1452,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   
   const canLeads = isAdmin || hasResourcePermission("leads");
   const canClients = isAdmin || hasResourcePermission("clients");
+  const canWorkTracking = isAdmin || hasResourcePermission("work_tracking");
   const canInvoices = isAdmin; // invoices endpoints are admin-only
   const canFinance = isAdmin || hasResourcePermission("finance");
   const canGoals = isAdmin || hasResourcePermission("goals");
@@ -1458,12 +1464,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const { data: clientsData } = useQuery<any[]>({
     queryKey: ["/api/clients"],
-    enabled: canClients,
+    enabled: canClients || canWorkTracking,
   });
 
   const { data: clientServicesData } = useQuery<any[]>({
     queryKey: ["/api/client-services"],
-    enabled: canClients,
+    enabled: canClients || canWorkTracking,
   });
 
   const { data: mainPackagesData } = useQuery<MainPackage[]>({
@@ -1497,6 +1503,29 @@ export function DataProvider({ children }: { children: ReactNode }) {
     enabled: canGoals,
   });
 
+  const subPackages = useMemo(() => {
+    if (!Array.isArray(subPackagesData)) return [];
+    
+    const safeParse = (val: any) => {
+      if (Array.isArray(val)) return val;
+      if (typeof val === 'string') {
+        try {
+          const parsed = JSON.parse(val);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          return [];
+        }
+      }
+      return [];
+    };
+
+    return subPackagesData.map(pkg => ({
+      ...pkg,
+      deliverables: safeParse(pkg.deliverables),
+      platforms: safeParse(pkg.platforms)
+    }));
+  }, [subPackagesData]);
+
   // Merge clients with their services
   const clients = useMemo(() => {
     // Safety check for clientsData
@@ -1510,11 +1539,79 @@ export function DataProvider({ children }: { children: ReactNode }) {
     // Safety check for clientServicesData
     const safeClientServices = Array.isArray(clientServicesData) ? clientServicesData : [];
     
-    // Safety check for mainPackagesData
+  // Safety check for mainPackagesData
     const safeMainPackages = Array.isArray(mainPackagesData) ? mainPackagesData : [];
+  const safeSubPackages = subPackages;
 
     return clientsData.map(client => {
       const services = safeClientServices.filter(s => s.clientId === client.id).map(s => {
+        const parseMaybeArray = (val: any): string[] => {
+          if (Array.isArray(val)) return val;
+          if (typeof val === "string" && val.trim() !== "") {
+            // If it looks like a JSON array, try parsing it
+            if (val.trim().startsWith('[') && val.trim().endsWith(']')) {
+              try { 
+                const arr = JSON.parse(val); 
+                return Array.isArray(arr) ? arr : [val]; 
+              } catch { 
+                return [val]; 
+              }
+            }
+            // If it's a comma-separated list
+            if (val.includes(',')) {
+              return val.split(',').map(s => s.trim()).filter(Boolean);
+            }
+            // Otherwise it's a single ID
+            return [val.trim()];
+          }
+          return [];
+        };
+        const execIds = parseMaybeArray(s.executionEmployeeIds);
+        let delivs: any[] = Array.isArray(s.deliverables) ? s.deliverables : [];
+        
+        // Sync deliverables with sub-package definition if exists
+        // This ensures updates to package deliverables (label, target, isBoolean) are reflected
+        if (s.subPackageId) {
+          const sp = safeSubPackages.find(p => p.id === s.subPackageId);
+          if (sp && Array.isArray(sp.deliverables) && sp.deliverables.length > 0) {
+            // Map over package deliverables to ensure order and existence
+            delivs = sp.deliverables.map((t: any) => {
+              // Find existing progress if any
+              const existing = Array.isArray(s.deliverables) 
+                ? s.deliverables.find((d: any) => d.key === t.key) 
+                : undefined;
+              
+              // Use package definition as master for metadata
+              // Don't fallback to t.label for labelAr/labelEn to avoid language pollution
+              // Explicitly checking for empty strings to avoid falsy fallbacks if 0 or false (though unlikely for strings)
+              const labelAr = (t.labelAr && t.labelAr.trim() !== "") ? t.labelAr : "";
+              const labelEn = (t.labelEn && t.labelEn.trim() !== "") ? t.labelEn : "";
+              const target = typeof t.target === "number" ? t.target : (t.value !== undefined && !isNaN(Number(t.value)) ? Number(t.value) : (t.isBoolean ? 1 : 0));
+              const isBoolean = !!t.isBoolean;
+              
+              // Ensure icon is passed correctly
+              const icon = t.icon || "star";
+              
+              return {
+                key: t.key,
+                // Prioritize labelAr/labelEn over label to ensure we have the specific language values
+                label: labelAr || labelEn || t.label || "", 
+                labelAr,
+                labelEn,
+                target,
+                completed: existing ? existing.completed : 0, // Preserve progress
+                isBoolean,
+                icon
+              };
+            });
+          }
+        }
+
+        // Fallback: If no subPackageId or empty package deliverables, use stored deliverables
+        if (delivs.length === 0 && Array.isArray(s.deliverables)) {
+          delivs = s.deliverables;
+        }
+
         let serviceType = "branding";
         
         if (s.mainPackageId && safeMainPackages.length > 0) {
@@ -1544,13 +1641,24 @@ export function DataProvider({ children }: { children: ReactNode }) {
           price: s.price,
           currency: s.currency,
           status: s.status,
-          serviceAssignees: s.executionEmployeeIds,
+          serviceAssignees: execIds,
+          // surface sales employee id if present for work-tracking header
+          // @ts-ignore
+          salesEmployeeId: (s as any).salesEmployeeId,
           mainPackageId: s.mainPackageId,
           subPackageId: s.subPackageId,
           completedDate: s.completedAt ? new Date(s.completedAt).toISOString().split('T')[0] : undefined,
-          deliverables: s.deliverables,
+          deliverables: delivs,
         };
       }) || [];
+
+      const parseMaybeArray = (val: any): string[] => {
+        if (Array.isArray(val)) return val;
+        if (typeof val === "string") {
+          try { const arr = JSON.parse(val); return Array.isArray(arr) ? arr : []; } catch { return []; }
+        }
+        return [];
+      };
 
       return {
         ...client,
@@ -1558,18 +1666,18 @@ export function DataProvider({ children }: { children: ReactNode }) {
         // Ensure other fields match ConfirmedClient interface
         salesOwnerId: client.salesOwnerId || undefined,
         assignedManagerId: client.assignedManagerId || undefined,
-        salesOwners: client.salesOwners || [],
-        assignedStaff: client.assignedStaff || [],
+        salesOwners: parseMaybeArray(client.salesOwners),
+        assignedStaff: parseMaybeArray(client.assignedStaff),
         completedDate: client.completedDate ? new Date(client.completedDate).toISOString().split('T')[0] : undefined,
       } as ConfirmedClient;
     });
-  }, [clientsData, clientServicesData, mainPackagesData]);
+  }, [clientsData, clientServicesData, mainPackagesData, subPackages]);
 
   // Use local state for leads if API is loading, or rely on API data
   const leads = Array.isArray(leadsData) ? leadsData : [];
 
   const mainPackages = Array.isArray(mainPackagesData) ? mainPackagesData : [];
-  const subPackages = Array.isArray(subPackagesData) ? subPackagesData : [];
+  
   const invoices = Array.isArray(invoicesData) ? invoicesData : [];
   const transactions = Array.isArray(transactionsData) ? transactionsData : [];
   const employees = Array.isArray(employeesData) ? employeesData : [];
@@ -2134,6 +2242,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
     deleteEmployeeMutation.mutate(id);
   }, [deleteEmployeeMutation]);
 
+  const reassignAndDeleteEmployee = useCallback(async (id: string, options: { reassignTo?: string; force?: boolean }) => {
+    await apiRequest("POST", `/api/employees/${id}/reassign-and-delete`, options);
+    queryClient.invalidateQueries({ queryKey: ["/api/employees"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/client-services"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/leads"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/calendar-events"] });
+  }, []);
+
   // ============ EVENTS CRUD ============
 
   const addEventMutation = useMutation({
@@ -2398,6 +2515,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     addEmployee,
     updateEmployee,
     deleteEmployee,
+  reassignAndDeleteEmployee,
     events,
     addEvent,
     updateEvent,

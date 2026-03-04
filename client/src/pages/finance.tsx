@@ -1205,7 +1205,7 @@ export default function FinancePage() {
               onClick={goToPreviousMonth}
               data-testid="button-prev-month"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronRight className="h-4 w-4 rtl:rotate-0 rotate-180" />
             </Button>
             <div className="min-w-[140px] text-center font-medium" data-testid="text-selected-month">
               {formatMonthDisplay()}
@@ -1216,7 +1216,7 @@ export default function FinancePage() {
               onClick={goToNextMonth}
               data-testid="button-next-month"
             >
-              <ChevronRight className="h-4 w-4" />
+              <ChevronLeft className="h-4 w-4 rtl:rotate-0 rotate-180" />
             </Button>
           </div>
           

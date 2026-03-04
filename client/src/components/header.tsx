@@ -408,7 +408,7 @@ export function Header() {
               className="justify-center text-primary cursor-pointer"
               onClick={() => navigate("/calendar")}
             >
-              <Calendar className="h-4 w-4 me-2" />
+              <Calendar className="h-4 w-4 me-2 rtl:ms-2 rtl:me-0" />
               {language === "ar" ? "فتح التقويم" : "Open Calendar"}
             </DropdownMenuItem>
           </DropdownMenuContent>

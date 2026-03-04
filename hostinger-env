@@ -1,36 +1,15 @@
-# ملف متغيرات البيئة لإعدادات Hostinger (الإنتاج)
-# --------------------------------------------------
-# ملاحظة: يجب إدخال هذه المتغيرات في لوحة تحكم Hostinger (قسم Node.js > Environment Variables)
-
-# 1. إعدادات قاعدة البيانات (MySQL)
-# صيغة الرابط: mysql://user:password@host:port/database
-# استبدل القيم أدناه بالقيم التي ستحصل عليها من قسم MySQL Databases في Hostinger
-DATABASE_URL=mysql://u884871213_vevoline_user:Mohijazi762001?@localhost:3306/u884871213_vevoline_db
-
-# 2. إعدادات الجلسة والأمان
-# قم بتغيير SESSION_SECRET إلى كلمة سر طويلة وعشوائية جداً
-SESSION_SECRET=a_very_long_random_string_for_production_safety
-NODE_ENV=production
-PORT=3000
-
-# 3. إعدادات المدير (Admin)
-# هذه البيانات ستستخدم عند تشغيل كود الـ Seeding لأول مرة
-ADMIN_EMAIL=admin@vevoline.com
-ADMIN_PASSWORD=adminadmin123
-
-# 4. إعدادات البريد الإلكتروني (SMTP)
-# يفضل استخدام بريد Hostinger الرسمي أو Gmail
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=vevoline00@gmail.com
-FROM_EMAIL=vevoline00@gmail.com
-SMTP_PASS=hgmyoeuttdxocwrp
-FROM_NAME=VevoLine dashboard
-
-# 5. إعدادات التطبيق
-# يجب وضع الرابط النهائي للموقع (بدون / في النهاية)
-APP_URL=https://vevoline.space
-
-# 6. إعدادات الملفات (Uploads)
-# في Hostinger، المسار عادة ما يكون نسبي لمجلد المشروع
-PRIVATE_OBJECT_DIR=./uploads
+node <<'NODE'
+const mysql = require('mysql2/promise');
+(async () => {
+  const conn = await mysql.createConnection({
+    host: '127.0.0.1',
+    port: 3306,
+    user: 'vevospace',
+    password: 'VevoLine2091',
+    database: 'vevospace',
+  });
+  await conn.query("CREATE TABLE IF NOT EXISTS `sessions` (`session_id` varchar(128) COLLATE utf8mb4_bin NOT NULL, `expires` int(11) unsigned NOT NULL, `data` mediumtext COLLATE utf8mb4_bin, PRIMARY KEY (`session_id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;");
+  await conn.end();
+  console.log('sessions table ensured');
+})().catch((e) => { console.error(e); process.exit(1); });
+NODE
