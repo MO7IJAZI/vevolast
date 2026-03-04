@@ -1892,8 +1892,8 @@ export default function ClientsPage() {
   console.log("[ClientsPage] About to render, t.title:", t.title);
   
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
-      <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
+    <div className="p-6 max-w-[1600px] mx-auto overflow-x-hidden">
+      <div className="flex items-center justify-between gap-4 flex-wrap mb-6 min-w-0">
         <h1 className="text-2xl font-bold">{t.title}</h1>
       </div>
 

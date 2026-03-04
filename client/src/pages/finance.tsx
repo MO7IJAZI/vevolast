@@ -1191,9 +1191,9 @@ export default function FinancePage() {
   };
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
+    <div className="p-6 max-w-[1600px] mx-auto overflow-x-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-4 min-w-0">
         <h1 className="text-2xl font-bold">{t.title}</h1>
         
         <div className="flex items-center gap-4 flex-wrap">

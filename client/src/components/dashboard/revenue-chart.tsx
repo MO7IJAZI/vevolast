@@ -14,25 +14,16 @@ const packageColors: Record<string, string> = {
   "main-pkg-6": "hsl(142, 76%, 36%)", // Custom
 };
 
-const packageNames: Record<string, { en: string; ar: string }> = {
-  "main-pkg-1": { en: "Social Media", ar: "وسائل التواصل" },
-  "main-pkg-2": { en: "Websites", ar: "المواقع" },
-  "main-pkg-3": { en: "Logo", ar: "الشعارات" },
-  "main-pkg-4": { en: "AI", ar: "الذكاء الاصطناعي" },
-  "main-pkg-5": { en: "Apps", ar: "التطبيقات" },
-  "main-pkg-6": { en: "Custom", ar: "مخصص" },
-};
-
 export function RevenueChart() {
   const { language } = useLanguage();
   const { formatCurrency, convertAmount, currency } = useCurrency();
-  const { clients } = useData();
+  const { clients, mainPackages } = useData();
 
   const data = useMemo(() => {
     const revenueByPackage: Record<string, number> = {};
 
     clients.forEach((client) => {
-      client.services.forEach((service) => {
+      (client.services || []).forEach((service) => {
         const pkgId = service.mainPackageId || "main-pkg-6";
         const amount = convertAmount(service.price || 0, service.currency || "USD", currency);
         
@@ -41,18 +32,20 @@ export function RevenueChart() {
     });
 
     const result = Object.entries(revenueByPackage)
-      .map(([key, value]) => ({
-        name: packageNames[key]?.en || "Unknown",
-        nameAr: packageNames[key]?.ar || "غير معروف",
-        value: value,
-        color: packageColors[key] || "hsl(0, 0%, 50%)",
-      }))
+      .map(([key, value]) => {
+        const pkg = mainPackages.find(p => p.id === key);
+        return {
+          name: pkg?.nameEn || (key === "main-pkg-6" ? "Custom" : "Other"),
+          nameAr: pkg?.name || (key === "main-pkg-6" ? "مخصص" : "أخرى"),
+          value: value,
+          color: packageColors[key] || "hsl(0, 0%, 50%)",
+        };
+      })
       .filter((item) => item.value > 0)
       .sort((a, b) => b.value - a.value);
       
-    // If no data, use empty array
     return result;
-  }, [clients, convertAmount, currency]);
+  }, [clients, mainPackages, convertAmount, currency]);
 
   const total = data.reduce((sum, item) => sum + item.value, 0);
 
