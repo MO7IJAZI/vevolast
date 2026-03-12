@@ -50,6 +50,10 @@ async function runMigrations() {
   console.log("⏳ Running MySQL migrations...");
   try {
     const migrationPath = path.join(process.cwd(), "migrations", "0000_mysql_migration.sql");
+    if (!existsSync(migrationPath)) {
+      console.log("ℹ️ No migration file found, skipping migrations (database already up to date).");
+      return;
+    }
     const sql = await readFile(migrationPath, "utf-8");
     
     const statements = sql
