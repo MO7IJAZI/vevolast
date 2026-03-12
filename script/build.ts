@@ -186,13 +186,10 @@ async function ensureTables() {
     },
   ];
 
-  // Also handle ALTER TABLE for columns added after initial creation
+  // Handle ALTER TABLE for columns added to existing tables after their initial creation.
+  // Safe to add more entries here; they silently skip if the column already exists.
   const alterations: { table: string; column: string; sql: string }[] = [
-    {
-      table: "invitations",
-      column: "profile_image",
-      sql: `ALTER TABLE \`invitations\` ADD COLUMN \`profile_image\` text DEFAULT NULL`,
-    },
+    // Example: { table: "some_table", column: "new_col", sql: `ALTER TABLE \`some_table\` ADD COLUMN \`new_col\` text` },
   ];
 
   for (const table of tables) {
@@ -209,10 +206,12 @@ async function ensureTables() {
       await db.execute(alt.sql);
       console.log(`  ✔ Column \`${alt.column}\` added to \`${alt.table}\``);
     } catch (error: any) {
-      if (error.code === "ER_DUP_FIELDNAME") {
-        // Column already exists — that's fine
+      const code = error.code ?? error.cause?.code;
+      const msg: string = error.message ?? "";
+      if (code === "ER_DUP_FIELDNAME" || msg.includes("Duplicate column")) {
+        // Column already exists — skip silently
       } else {
-        console.error(`  ✘ Failed to alter \`${alt.table}\`:`, error.message);
+        console.error(`  ✘ Failed to alter \`${alt.table}\`:`, msg);
       }
     }
   }
