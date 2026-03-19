@@ -1446,3 +1446,55 @@
 2026-03-12T21:32:19.435Z - Setting up Vite development server (Development Mode)
 2026-03-12T21:32:21.157Z - Vite setup complete
 2026-03-12T21:32:21.165Z - serving on port 5000
+2026-03-18T23:45:26.861Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-18T23:45:26.864Z - Express and HTTP server initialized
+2026-03-18T23:45:26.866Z - Environment: development
+2026-03-18T23:45:26.868Z - Starting initialization sequence...
+2026-03-18T23:45:26.868Z - Testing database connection...
+2026-03-18T23:45:26.906Z - Database connection successful
+2026-03-18T23:45:26.911Z - Seeding admin user...
+2026-03-18T23:45:26.963Z - Admin user seeding checked
+2026-03-18T23:45:26.964Z - Registering routes...
+2026-03-18T23:45:26.968Z - Routes registered
+2026-03-18T23:45:26.968Z - Setting up Vite development server (Development Mode)
+2026-03-18T23:45:27.544Z - Vite setup complete
+2026-03-18T23:45:27.547Z - serving on port 5000
+2026-03-18T23:48:09.372Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-18T23:48:09.374Z - Express and HTTP server initialized
+2026-03-18T23:48:09.376Z - Environment: development
+2026-03-18T23:48:09.378Z - Starting initialization sequence...
+2026-03-18T23:48:09.378Z - Testing database connection...
+2026-03-18T23:48:09.407Z - Database connection successful
+2026-03-18T23:48:09.411Z - Seeding admin user...
+2026-03-18T23:48:09.430Z - Admin user seeding checked
+2026-03-18T23:48:09.431Z - Registering routes...
+2026-03-18T23:48:09.433Z - Routes registered
+2026-03-18T23:48:09.434Z - Setting up Vite development server (Development Mode)
+2026-03-18T23:48:09.806Z - Vite setup complete
+2026-03-18T23:48:09.808Z - serving on port 5000
+2026-03-18T23:49:00.741Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-18T23:49:00.744Z - Express and HTTP server initialized
+2026-03-18T23:49:00.746Z - Environment: development
+2026-03-18T23:49:00.747Z - Starting initialization sequence...
+2026-03-18T23:49:00.747Z - Testing database connection...
+2026-03-18T23:49:00.772Z - Database connection successful
+2026-03-18T23:49:00.777Z - Seeding admin user...
+2026-03-18T23:49:00.798Z - Admin user seeding checked
+2026-03-18T23:49:00.798Z - Registering routes...
+2026-03-18T23:49:00.801Z - Routes registered
+2026-03-18T23:49:00.801Z - Setting up Vite development server (Development Mode)
+2026-03-18T23:49:01.174Z - Vite setup complete
+2026-03-18T23:49:01.176Z - serving on port 5000
+2026-03-18T23:59:24.872Z - --- SERVER STARTUP SEQUENCE START ---
+2026-03-18T23:59:24.875Z - Express and HTTP server initialized
+2026-03-18T23:59:24.877Z - Environment: development
+2026-03-18T23:59:24.879Z - Starting initialization sequence...
+2026-03-18T23:59:24.880Z - Testing database connection...
+2026-03-18T23:59:24.908Z - Database connection successful
+2026-03-18T23:59:24.914Z - Seeding admin user...
+2026-03-18T23:59:24.941Z - Admin user seeding checked
+2026-03-18T23:59:24.942Z - Registering routes...
+2026-03-18T23:59:24.944Z - Routes registered
+2026-03-18T23:59:24.945Z - Setting up Vite development server (Development Mode)
+2026-03-18T23:59:25.397Z - Vite setup complete
+2026-03-18T23:59:25.399Z - serving on port 5000

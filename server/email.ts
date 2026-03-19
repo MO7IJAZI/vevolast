@@ -1,5 +1,4 @@
 import nodemailer from "nodemailer";
-import dns from "node:dns";
 
 const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || "587");
@@ -7,33 +6,17 @@ const SMTP_USER = process.env.SMTP_USER || "";
 const SMTP_PASS = process.env.SMTP_PASS ? process.env.SMTP_PASS.replace(/\s+/g, "") : "";
 const FROM_EMAIL = process.env.FROM_EMAIL || SMTP_USER || "";
 const FROM_NAME = process.env.FROM_NAME || "VevoLine Dashboard";
-const DNS_SERVERS = process.env.DNS_SERVERS;
-const APP_URL = process.env.REPL_SLUG 
+const APP_URL = process.env.REPL_SLUG
   ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER?.toLowerCase()}.repl.co`
   : process.env.APP_URL || "http://localhost:5000";
 
 let transporter: nodemailer.Transporter | null = null;
-let isTransporterVerified = false;
 
 export async function initializeEmailTransporter() {
   if (!SMTP_USER || !SMTP_PASS) {
-    console.warn("SMTP credentials not configured - emails will not be sent");
+    console.warn("⚠️ SMTP credentials not configured - emails will not be sent");
     return;
   }
-
-  // Common configuration for both transporters
-  const commonConfig = {
-    pool: true,
-    maxConnections: 1,
-    maxMessages: 50,
-    connectionTimeout: 5000, // Reduced to 5s
-    greetingTimeout: 5000,   // Reduced to 5s
-    socketTimeout: 10000,    // Reduced to 10s
-    dnsTimeout: 5000,        // Explicit DNS timeout
-    tls: {
-      rejectUnauthorized: false, // Help with self-signed certs or proxy issues
-    }
-  };
 
   try {
     transporter = nodemailer.createTransport({
@@ -41,28 +24,33 @@ export async function initializeEmailTransporter() {
       port: SMTP_PORT,
       secure: SMTP_PORT === 465,
       requireTLS: SMTP_PORT === 587,
-      ...commonConfig,
+      pool: false, // disable pool to avoid connection reuse issues on shared hosting
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
+      tls: {
+        rejectUnauthorized: false,
+      },
       auth: {
         user: SMTP_USER,
         pass: SMTP_PASS,
       },
+    } as any);
+
+    // Attempt verification but DON'T block email sending on it
+    transporter.verify((error) => {
+      if (error) {
+        console.warn("⚠️ Email transporter verify warning (non-fatal):", error.message);
+        console.warn("   Emails will still be attempted. Check SMTP credentials if emails fail.");
+      } else {
+        console.log("✅ Email transporter verified and ready");
+      }
     });
 
-    // Verify connection configuration
-    transporter
-      .verify()
-      .then(() => {
-        console.log("✅ Email transporter ready");
-        isTransporterVerified = true;
-      })
-      .catch((error) => {
-        console.error("❌ Email transporter verification failed:", error.message);
-        isTransporterVerified = false;
-        // Don't kill the transporter object, maybe it works later or on specific retry
-      });
-
+    console.log(`📧 Email transporter initialized: ${SMTP_USER} via ${SMTP_HOST}:${SMTP_PORT}`);
   } catch (error) {
-    console.error("Failed to initialize email transporter:", error);
+    console.error("❌ Failed to initialize email transporter:", error);
+    transporter = null;
   }
 }
 
@@ -71,18 +59,20 @@ export async function sendEmail(
   subject: string,
   html: string
 ): Promise<boolean> {
+  if (!SMTP_USER || !SMTP_PASS) {
+    console.warn("❌ Email not sent: SMTP credentials missing");
+    return false;
+  }
+
+  // Create a fresh transporter if not initialized
   if (!transporter) {
-    console.warn("Email transporter not initialized - email not sent to:", to);
-    return false;
+    console.warn("⚠️ Transporter not initialized, attempting to re-initialize...");
+    await initializeEmailTransporter();
+    if (!transporter) {
+      console.error("❌ Email not sent: transporter unavailable");
+      return false;
+    }
   }
-
-  // If verification failed previously, we can try one more time or just fail fast.
-  // Fails fast to avoid long waits for the user.
-  if (!isTransporterVerified) {
-    console.warn("Email transporter is not verified - skipping email send to avoid timeout.");
-    return false;
-  }
-
 
   const resolvedFromEmail =
     SMTP_HOST.includes("gmail.com") && SMTP_USER ? SMTP_USER : FROM_EMAIL || SMTP_USER;
@@ -97,24 +87,28 @@ export async function sendEmail(
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
+      console.log(`📤 Sending email to ${to} (attempt ${attempt}/3)...`);
       await transporter.sendMail({
         from: `"${FROM_NAME}" <${resolvedFromEmail}>`,
         to,
         subject,
         html,
       });
-      console.log("Email sent to:", to);
+      console.log(`✅ Email successfully sent to: ${to}`);
       return true;
     } catch (error: any) {
       const code = error?.code || error?.errno || error?.responseCode;
       const isTransient = transientCodes.has(code) || typeof code === "number";
+      console.error(`❌ Email attempt ${attempt} failed:`, error.message, `(code: ${code})`);
+
       if (attempt < 3 && isTransient) {
         const delay = 1000 * Math.pow(2, attempt - 1);
+        console.log(`   Retrying in ${delay}ms...`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
 
-      console.error("Failed to send email:", error);
+      console.error("❌ All email send attempts failed for:", to);
       return false;
     }
   }
@@ -128,7 +122,7 @@ export async function sendInvitationEmail(
   role: string
 ): Promise<boolean> {
   const setPasswordUrl = `${APP_URL}/set-password?token=${token}`;
-  
+
   const roleLabels: Record<string, string> = {
     admin: "مدير / Admin",
     sales: "مبيعات / Sales",
