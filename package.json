@@ -14,6 +14,7 @@
     "db:migrate": "node node_modules/tsx/dist/cli.mjs server/migrate.ts",
     "db:mysql": "node node_modules/tsx/dist/cli.mjs server/migrate-mysql.ts",
     "db:seed": "node node_modules/tsx/dist/cli.mjs server/seed.ts",
+    "db:backfill-transactions": "node node_modules/tsx/dist/cli.mjs server/migrate-backfill-transactions.ts",
     "db:reset": "node node_modules/tsx/dist/cli.mjs server/reset_db.ts",
     "db:push": "drizzle-kit push"
   },
