@@ -28,7 +28,7 @@ import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/contexts/AuthContext";
 
 export default function Dashboard() {
-  const { isAdmin, user } = useAuth();
+  const { isAdmin, hasResourcePermission, user } = useAuth();
   const { t, language } = useLanguage();
   const { formatCurrency, convertAmount, currency: displayCurrency } = useCurrency();
   const {
@@ -123,7 +123,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {isAdmin && (
+      {(isAdmin || hasResourcePermission("finance")) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Link href="/finance">
             <KPICard
@@ -172,7 +172,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {isAdmin && (
+      {(isAdmin || hasResourcePermission("finance")) && (
         <div className="grid lg:grid-cols-3 gap-6">
           <IncomeChart />
           <RevenueChart />
@@ -180,24 +180,25 @@ export default function Dashboard() {
       )}
 
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <ClientsWidget />
-        {isAdmin && <InvoicesWidget />}
-        <PackagesWidget />
-        <TopPerformers />
+        {(isAdmin || hasResourcePermission("clients")) && <ClientsWidget />}
+        {(isAdmin || hasResourcePermission("invoices")) && <InvoicesWidget />}
+        {(isAdmin || hasResourcePermission("packages")) && <PackagesWidget />}
+        {(isAdmin || hasResourcePermission("clients")) && <TopPerformers />}
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        <WorkTrackingWidget />
+        {(isAdmin || hasResourcePermission("work_tracking")) && <WorkTrackingWidget />}
         <TimeTrackerWidget />
       </div>
 
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Target className="h-4 w-4 text-primary" />
-              {txt.goalsTitle}
-            </CardTitle>
+        {(isAdmin || hasResourcePermission("goals")) && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Target className="h-4 w-4 text-primary" />
+                {txt.goalsTitle}
+              </CardTitle>
             <Link href="/goals">
               <Button variant="ghost" size="sm" data-testid="link-goals-view-all">
                 {txt.viewAll}
@@ -231,13 +232,15 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+        )}
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-primary" />
-              {txt.calendarTitle}
-            </CardTitle>
+        {(isAdmin || hasResourcePermission("calendar")) && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Calendar className="h-4 w-4 text-primary" />
+                {txt.calendarTitle}
+              </CardTitle>
             <Link href="/calendar">
               <Button variant="ghost" size="sm" data-testid="link-calendar-view-all">
                 {txt.viewAll}
@@ -288,12 +291,14 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+        )}
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Target className="h-4 w-4 text-primary" />
-              {txt.employeesTitle}
+        {(isAdmin || hasResourcePermission("employees")) && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Target className="h-4 w-4 text-primary" />
+                {txt.employeesTitle}
             </CardTitle>
             <Link href="/employees">
               <Button variant="ghost" size="sm" data-testid="link-employees-view-all">
@@ -332,6 +337,7 @@ export default function Dashboard() {
             </div>
           </CardContent>
         </Card>
+        )}
       </div>
     </div>
   );
