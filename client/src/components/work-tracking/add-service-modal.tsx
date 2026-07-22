@@ -158,7 +158,7 @@ export function AddServiceModal({
         serviceNameEn: serviceNameEn || null,
         startDate,
         endDate: endDate || null,
-        price: price ? parseInt(price) : null,
+        price: price ? Math.round(Number(price)) : null,
         currency: currency || null,
         salesEmployeeId: salesEmployeeId || null,
         executionEmployeeIds: executionEmployeeIds.length > 0 ? executionEmployeeIds : null,

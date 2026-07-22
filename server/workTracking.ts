@@ -1,13 +1,13 @@
 import { Express, Request, Response } from "express";
 import { db } from "./db.js";
 import { randomUUID } from "crypto";
-import { clientServices, serviceDeliverables, serviceReports, workActivityLogs } from "../shared/schema.js";
+import { clientServices, serviceDeliverables, serviceReports, workActivityLogs, transactions, subPackages } from "../shared/schema.js";
 import { eq, and, inArray, desc, sql } from "drizzle-orm";
-import { requireAuth } from "./auth.js";
+import { requireAuth, requirePermission, requireAnyPermission } from "./auth.js";
 
 export function registerWorkTrackingRoutes(app: Express) {
   // Get all client services with deliverables
-  app.get("/api/work-tracking", requireAuth, async (req, res) => {
+  app.get("/api/work-tracking", requireAnyPermission(["work_tracking:view", "clients:view"]), async (req, res) => {
     try {
       const { clientId, status, employeeId, mainPackageId } = req.query;
       
@@ -61,7 +61,7 @@ export function registerWorkTrackingRoutes(app: Express) {
   });
 
   // Get work tracking services for a specific client (must be before :id route)
-  app.get("/api/work-tracking/client/:clientId", requireAuth, async (req, res) => {
+  app.get("/api/work-tracking/client/:clientId", requireAnyPermission(["work_tracking:view", "clients:view"]), async (req, res) => {
     try {
       const clientId = req.params.clientId as string;
       
@@ -101,7 +101,7 @@ export function registerWorkTrackingRoutes(app: Express) {
   });
 
   // Get single service with deliverables
-  app.get("/api/work-tracking/:id", requireAuth, async (req, res) => {
+  app.get("/api/work-tracking/:id", requireAnyPermission(["work_tracking:view", "clients:view"]), async (req, res) => {
     try {
       const id = req.params.id as string;
       
@@ -127,7 +127,7 @@ export function registerWorkTrackingRoutes(app: Express) {
   });
 
   // Create new client service with deliverables
-  app.post("/api/work-tracking", requireAuth, async (req, res) => {
+  app.post("/api/work-tracking", requireAnyPermission(["work_tracking:create", "clients:create"]), async (req, res) => {
     try {
       const { deliverables: deliverablesList, ...serviceData } = req.body;
       
@@ -170,7 +170,7 @@ export function registerWorkTrackingRoutes(app: Express) {
   });
 
   // Update service
-  app.patch("/api/work-tracking/:id", requireAuth, async (req, res) => {
+  app.patch("/api/work-tracking/:id", requireAnyPermission(["work_tracking:edit", "clients:edit"]), async (req, res) => {
     try {
       const id = req.params.id as string;
       const { deliverables: deliverablesList, ...updateData } = req.body;
@@ -199,11 +199,15 @@ export function registerWorkTrackingRoutes(app: Express) {
           newValue: updateData.status,
         });
         
-        // If completed, set completedAt
         if (updateData.status === "completed") {
+          // If completed, set completedAt and auto-create income transaction
           await db.update(clientServices)
             .set({ completedAt: new Date() })
             .where(eq(clientServices.id, id));
+          const [completedService] = await db.select().from(clientServices).where(eq(clientServices.id, id));
+          if (completedService) {
+            await createTransactionForCompletedService(completedService);
+          }
         }
       }
       
@@ -224,7 +228,7 @@ export function registerWorkTrackingRoutes(app: Express) {
   });
 
   // Update deliverable progress
-  app.patch("/api/work-tracking/:serviceId/deliverables/:deliverableId", requireAuth, async (req, res) => {
+  app.patch("/api/work-tracking/:serviceId/deliverables/:deliverableId", requireAnyPermission(["work_tracking:edit", "clients:edit"]), async (req, res) => {
     try {
       const serviceId = req.params.serviceId as string;
       const deliverableId = req.params.deliverableId as string;
@@ -265,11 +269,15 @@ export function registerWorkTrackingRoutes(app: Express) {
         d.isBoolean ? d.completed >= 1 : d.completed >= d.target
       );
       
-      // If all complete, update service status
+      // If all complete, update service status and auto-create income transaction
       if (allComplete) {
         await db.update(clientServices)
           .set({ status: "completed", completedAt: new Date(), updatedAt: new Date() })
           .where(eq(clientServices.id, serviceId));
+        const [completedService] = await db.select().from(clientServices).where(eq(clientServices.id, serviceId));
+        if (completedService) {
+          await createTransactionForCompletedService(completedService);
+        }
       }
       
       res.json(updatedDeliverable);
@@ -280,7 +288,7 @@ export function registerWorkTrackingRoutes(app: Express) {
   });
 
   // Mark service as complete
-  app.post("/api/work-tracking/:id/complete", requireAuth, async (req, res) => {
+  app.post("/api/work-tracking/:id/complete", requireAnyPermission(["work_tracking:edit", "work_tracking:approve"]), async (req, res) => {
     try {
       const id = req.params.id as string;
       
@@ -294,15 +302,18 @@ export function registerWorkTrackingRoutes(app: Express) {
         return res.status(404).json({ error: "Service not found" });
       }
       
+      // Auto-create income transaction
+      await createTransactionForCompletedService(updatedService);
+
       // Log activity
-      await db.insert(workActivityLogs).values({
-        id: randomUUID(),
-        serviceId: id,
-        action: "completed",
-        newValue: "marked_complete",
-      });
-      
-      res.json(updatedService);
+        await db.insert(workActivityLogs).values({
+          id: randomUUID(),
+          serviceId: id,
+          action: "completed",
+          newValue: "marked_complete",
+        });
+
+        res.json(updatedService);
     } catch (error) {
       console.error("Error completing service:", error);
       res.status(500).json({ error: "Failed to complete service" });
@@ -310,7 +321,7 @@ export function registerWorkTrackingRoutes(app: Express) {
   });
 
   // Delete service
-  app.delete("/api/work-tracking/:id", requireAuth, async (req, res) => {
+  app.delete("/api/work-tracking/:id", requireAnyPermission(["work_tracking:delete", "clients:delete"]), async (req, res) => {
     try {
       const id = req.params.id as string;
       
@@ -334,7 +345,7 @@ export function registerWorkTrackingRoutes(app: Express) {
   });
 
   // Get work tracking stats for dashboard
-  app.get("/api/work-tracking/stats/summary", requireAuth, async (req, res) => {
+  app.get("/api/work-tracking/stats/summary", requireAnyPermission(["work_tracking:view", "clients:view", "dashboard:view"]), async (req, res) => {
     try {
       const allServices = await db.select().from(clientServices);
       
@@ -433,7 +444,7 @@ export function registerWorkTrackingRoutes(app: Express) {
   });
 
   // Get employee-specific stats
-  app.get("/api/work-tracking/stats/employee/:employeeId", requireAuth, async (req, res) => {
+  app.get("/api/work-tracking/stats/employee/:employeeId", requireAnyPermission(["work_tracking:view", "clients:view"]), async (req, res) => {
     try {
       const employeeId = req.params.employeeId as string;
       
@@ -535,7 +546,7 @@ export function registerWorkTrackingRoutes(app: Express) {
   });
 
   // Get activity log for a service
-  app.get("/api/work-tracking/:id/activity", requireAuth, async (req, res) => {
+  app.get("/api/work-tracking/:id/activity", requireAnyPermission(["work_tracking:view", "clients:view"]), async (req, res) => {
     try {
       const id = req.params.id as string;
       
@@ -549,6 +560,47 @@ export function registerWorkTrackingRoutes(app: Express) {
       res.status(500).json({ error: "Failed to fetch activity log" });
     }
   });
+}
+
+async function createTransactionForCompletedService(service: typeof clientServices.$inferSelect): Promise<void> {
+  try {
+    if (!service.price || !service.currency) return;
+
+    // Check billing type from linked sub-package
+    let billingType = "one_time";
+    if (service.subPackageId) {
+      const subPackagesList = await db.select().from(subPackages).where(eq(subPackages.id, service.subPackageId));
+      if (subPackagesList.length > 0) {
+        billingType = subPackagesList[0].billingType || "one_time";
+      }
+    }
+
+    // Only auto-create for one-time/project services
+    if (billingType === "monthly") return;
+
+    // Check if transaction already exists
+    const existing = await db.select().from(transactions)
+      .where(and(eq(transactions.relatedType, "client_service"), eq(transactions.relatedId, service.id)));
+    if (existing.length > 0) return;
+
+    const today = new Date().toISOString().split("T")[0];
+    await db.insert(transactions).values({
+      id: randomUUID(),
+      type: "income",
+      category: "services",
+      amount: service.price,
+      currency: service.currency,
+      description: `Completed service: ${service.serviceName}`,
+      date: today,
+      relatedType: "client_service",
+      relatedId: service.id,
+      clientId: service.clientId,
+      serviceId: service.id,
+      status: "completed",
+    });
+  } catch (error) {
+    console.error("Error creating transaction for completed service:", error);
+  }
 }
 
 function calculateServiceProgress(deliverables: typeof serviceDeliverables.$inferSelect[]): number {

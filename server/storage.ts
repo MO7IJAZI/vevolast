@@ -113,6 +113,8 @@ export interface IStorage {
     netProfit: number;
     overdueAmount: number;
     payrollRemaining: number;
+    expectedRevenue: number;
+    servicesBreakdown: { packageName: string; packageNameAr: string; revenue: number }[];
     displayCurrency: string;
   }>;
 
@@ -351,7 +353,7 @@ export class DatabaseStorage implements IStorage {
     const transactionId = randomUUID();
     await db.insert(transactions).values({
       id: transactionId,
-      description: "Client payment",
+      description: `Client payment - ${payment.month}/${payment.year}`,
       amount: payment.amount,
       currency: payment.currency,
       type: "income",
@@ -535,6 +537,8 @@ export class DatabaseStorage implements IStorage {
     netProfit: number;
     overdueAmount: number;
     payrollRemaining: number;
+    expectedRevenue: number;
+    servicesBreakdown: { packageName: string; packageNameAr: string; revenue: number }[];
     displayCurrency: string;
   }> {
     const { month, year, displayCurrency } = params;
@@ -577,14 +581,27 @@ export class DatabaseStorage implements IStorage {
       totalPaidSalaries += converted;
     }
 
-    // Calculate Overdue Amount
-    // Get all client services and payments to calculate overdue
+    // Calculate Overdue Amount & Expected Revenue
     const allServices = await this.getClientServices();
     const allPayments = await this.getClientPayments({});
     const allSubPackages = await this.getSubPackages();
+    const allMainPackages = await this.getMainPackages();
     const subPackageMap = new Map(allSubPackages.map(sp => [sp.id, sp]));
+    const mainPackageMap = new Map(allMainPackages.map(mp => [mp.id, mp]));
+
+    // Build map of auto-created transaction amounts per service (all time, not just current month)
+    const allServiceTransactions = await this.getTransactions({});
+    const serviceTransactionAmounts: Record<string, number> = {};
+    for (const t of allServiceTransactions) {
+      if (t.type === "income" && t.relatedType === "client_service" && t.relatedId) {
+        const converted = await convertCurrency(t.amount, t.currency, displayCurrency);
+        serviceTransactionAmounts[t.relatedId] = (serviceTransactionAmounts[t.relatedId] || 0) + converted;
+      }
+    }
 
     let overdueAmount = 0;
+    let expectedRevenue = 0;
+    const revenueByPackage: Record<string, number> = {}; // mainPackageId -> total
     const todayStr = now.toISOString().split('T')[0];
 
     for (const service of allServices) {
@@ -595,45 +612,64 @@ export class DatabaseStorage implements IStorage {
       
       const servicePrice = await convertCurrency(service.price, service.currency || 'USD', displayCurrency);
 
+      // Calculate total paid for this service (lifetime) including auto-created transactions
+      const servicePaymentsAll = allPayments.filter(p => p.serviceId === service.id);
+      let totalServicePaid = 0;
+      for (const p of servicePaymentsAll) {
+        totalServicePaid += await convertCurrency(p.amount, p.currency, displayCurrency);
+      }
+      // Include auto-created income transactions (e.g. from service completion)
+      totalServicePaid += (serviceTransactionAmounts[service.id] || 0);
+
       if (billingType === 'monthly') {
-        // For monthly services, check if payment for THIS month is made
-        // Only if service is active
-        if (service.status === 'active') {
-             const servicePaymentsThisMonth = allPayments.filter(p => 
-                p.serviceId === service.id && 
-                p.month === currentMonth && 
-                p.year === currentYear
-             );
-             
-             let totalPaid = 0;
-             for (const p of servicePaymentsThisMonth) {
-                const paymentAmount = await convertCurrency(p.amount, p.currency, displayCurrency);
-                totalPaid += paymentAmount;
-             }
-             
-             if (totalPaid < servicePrice - 1) {
-                overdueAmount += (servicePrice - totalPaid);
-             }
+        // Check if payment for THIS month is made
+        if (service.status === 'active' || service.status === 'completed') {
+          const servicePaymentsThisMonth = servicePaymentsAll.filter(p => 
+            p.month === currentMonth && p.year === currentYear
+          );
+          let totalPaidThisMonth = 0;
+          for (const p of servicePaymentsThisMonth) {
+            totalPaidThisMonth += await convertCurrency(p.amount, p.currency, displayCurrency);
+          }
+          
+          if (totalPaidThisMonth < servicePrice - 1) {
+            overdueAmount += (servicePrice - totalPaidThisMonth);
+          }
+        }
+        // Completed services: add to expected revenue & package breakdown
+        if (totalServicePaid < servicePrice - 1) {
+          expectedRevenue += (servicePrice - totalServicePaid);
         }
       } else {
-        // For one-time/project services
-        // Check if service has end date is past or today
-        if (service.endDate && service.endDate < todayStr) {
-            // Calculate total paid for this service (lifetime)
-            const servicePayments = allPayments.filter(p => p.serviceId === service.id);
-            let totalPaid = 0;
-            
-            for (const p of servicePayments) {
-              const paymentAmount = await convertCurrency(p.amount, p.currency, displayCurrency);
-              totalPaid += paymentAmount;
-            }
-
-            if (totalPaid < servicePrice - 1) { 
-              overdueAmount += (servicePrice - totalPaid);
-            }
+        // One-time/project services
+        const isDue = (service.status === 'completed') || (service.endDate && service.endDate < todayStr);
+        if (isDue && totalServicePaid < servicePrice - 1) {
+          overdueAmount += (servicePrice - totalServicePaid);
+        }
+        // Add unpaid amount of completed services to expected revenue
+        if (service.status === 'completed' && totalServicePaid < servicePrice - 1) {
+          expectedRevenue += (servicePrice - totalServicePaid);
         }
       }
+
+      // Revenue breakdown by package (actual payments for this service)
+      if (totalServicePaid > 0) {
+        const mainPkgId = service.mainPackageId;
+        revenueByPackage[mainPkgId] = (revenueByPackage[mainPkgId] || 0) + totalServicePaid;
+      }
     }
+
+    // Build services breakdown
+    const servicesBreakdown = Object.entries(revenueByPackage)
+      .map(([pkgId, revenue]) => {
+        const pkg = mainPackageMap.get(pkgId);
+        return {
+          packageName: pkg?.nameEn || pkg?.name || "Other",
+          packageNameAr: pkg?.name || "أخرى",
+          revenue: Math.round(revenue * 100) / 100,
+        };
+      })
+      .sort((a, b) => b.revenue - a.revenue);
 
     return {
       totalIncome: Math.round(totalIncome * 100) / 100,
@@ -641,6 +677,8 @@ export class DatabaseStorage implements IStorage {
       netProfit: Math.round((totalIncome - totalExpenses) * 100) / 100,
       overdueAmount: Math.round(overdueAmount * 100) / 100,
       payrollRemaining: Math.round((totalExpectedSalaries - totalPaidSalaries) * 100) / 100,
+      expectedRevenue: Math.round(expectedRevenue * 100) / 100,
+      servicesBreakdown,
       displayCurrency,
     };
   }
@@ -1259,15 +1297,82 @@ export class DatabaseStorage implements IStorage {
 
   async updateClientService(id: string, service: Partial<InsertClientService>): Promise<ClientService | undefined> {
     try {
+      // Get existing service to check for status change
+      const existing = await db.select().from(clientServices).where(eq(clientServices.id, id));
+      const existingService = existing[0];
+
+      console.log(`[updateClientService] id=${id} service=`, JSON.stringify(service), `existingStatus=${existingService?.status}`);
+
       await db
         .update(clientServices)
         .set(service)
         .where(eq(clientServices.id, id));
       const result = await db.select().from(clientServices).where(eq(clientServices.id, id));
-      return result[0];
+      const updatedService = result[0];
+
+      // Auto-create income transaction when a one-time service is completed
+      if (updatedService && service.status === "completed" && existingService?.status !== "completed") {
+        console.log(`[updateClientService] Service completed, creating transaction...`);
+        await this.createTransactionForCompletedService(updatedService);
+      } else {
+        console.log(`[updateClientService] NOT creating transaction: updatedService=${!!updatedService}, status=${service.status}, existingStatus=${existingService?.status}`);
+      }
+
+      return updatedService;
     } catch (error) {
       console.error("Error updating client service:", error);
       return undefined;
+    }
+  }
+
+  private async createTransactionForCompletedService(service: ClientService): Promise<void> {
+    try {
+      if (!service.price || !service.currency) return;
+
+      // Check billing type from linked sub-package
+      let billingType = "one_time";
+      if (service.subPackageId) {
+        const subPackagesList = await db.select().from(subPackages).where(eq(subPackages.id, service.subPackageId));
+        if (subPackagesList.length > 0) {
+          billingType = subPackagesList[0].billingType || "one_time";
+        }
+      }
+
+      // Only auto-create transactions for one-time/project services, not monthly
+      if (billingType === "monthly") {
+        console.log(`[AutoTxn] Skipping monthly service: ${service.serviceName}`);
+        return;
+      }
+
+      // Check if there's already a transaction for this service
+      const existingTransactions = await db.select().from(transactions)
+        .where(and(eq(transactions.relatedType, "client_service"), eq(transactions.relatedId, service.id)));
+      if (existingTransactions.length > 0) {
+        console.log(`[AutoTxn] Transaction already exists for service: ${service.serviceName} (${service.id})`);
+        return;
+      }
+
+      // Create an income transaction
+      const transactionId = randomUUID();
+      const today = new Date().toISOString().split("T")[0];
+      console.log(`[AutoTxn] Creating income transaction for completed service: ${service.serviceName}, amount: ${service.price} ${service.currency}`);
+      await db.insert(transactions).values({
+        id: transactionId,
+        type: "income",
+        category: "services",
+        amount: service.price,
+        currency: service.currency,
+        description: `Completed service: ${service.serviceName}`,
+        date: today,
+        relatedType: "client_service",
+        relatedId: service.id,
+        clientId: service.clientId,
+        serviceId: service.id,
+        status: "completed",
+      });
+      console.log(`[AutoTxn] Transaction created: ${transactionId}`);
+    } catch (error) {
+      console.error("[AutoTxn] Error creating transaction for completed service:", error);
     }
   }
 

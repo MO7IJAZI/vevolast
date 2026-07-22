@@ -20,6 +20,7 @@ import {
   Layers, Edit, Star, Type, Book, BarChart, Zap
 } from "lucide-react";
 import { EmployeeChips } from "@/components/employee-chip";
+import { ReactivateServiceModal } from "@/components/work-tracking/reactivate-service-modal";
 import { cn } from "@/lib/utils";
 
 // Deliverables templates by main package category
@@ -124,6 +125,7 @@ export default function WorkTrackingPage() {
   const [monthFilter, setMonthFilter] = useState<string>("all");
   const [activeTab, setActiveTab] = useState<string>("active");
   const [expandedClients, setExpandedClients] = useState<Set<string>>(new Set());
+  const [reactivateTarget, setReactivateTarget] = useState<{ clientId: string; service: ServiceItem } | null>(null);
 
   const t = {
     ar: {
@@ -750,13 +752,9 @@ export default function WorkTrackingPage() {
     updateService(clientId, serviceId, { deliverables });
   };
 
-  // Handle reactivate service (set back to in_progress)
-  const handleReactivateService = (clientId: string, serviceId: string) => {
-    updateService(clientId, serviceId, {
-      status: "in_progress",
-      completedDate: undefined,
-    });
-    queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+  // Handle reactivate service - opens modal to edit details before creating new service
+  const handleReactivateService = (clientId: string, service: ServiceItem) => {
+    setReactivateTarget({ clientId, service });
   };
 
   // Handle reactivate entire client (all services back to in_progress)
@@ -1028,7 +1026,7 @@ export default function WorkTrackingPage() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => handleReactivateService(clientId, service.id)}
+                onClick={() => handleReactivateService(clientId, service)}
                 data-testid={`reactivate-${service.id}`}
               >
                 <Clock className="h-4 w-4 me-2" />
@@ -1317,6 +1315,15 @@ export default function WorkTrackingPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {reactivateTarget && (
+        <ReactivateServiceModal
+          open={!!reactivateTarget}
+          onOpenChange={(open) => { if (!open) setReactivateTarget(null); }}
+          clientId={reactivateTarget.clientId}
+          service={reactivateTarget.service}
+        />
+      )}
     </div>
   );
 }

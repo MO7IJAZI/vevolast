@@ -201,6 +201,8 @@ export default function FinancePage() {
       netProfit: "صافي الربح",
       overdueAmount: "المبالغ المتأخرة",
       payrollRemaining: "الرواتب المتبقية",
+      expectedRevenue: "الإيرادات المتوقعة",
+      revenueByService: "الإيرادات حسب الخدمة",
       addIncome: "إضافة إيراد",
       addExpense: "إضافة مصروف",
       editIncome: "تعديل إيراد",
@@ -273,6 +275,8 @@ export default function FinancePage() {
       netProfit: "Net Profit",
       overdueAmount: "Overdue Amount",
       payrollRemaining: "Payroll Remaining",
+      expectedRevenue: "Expected Revenue",
+      revenueByService: "Revenue by Service",
       addIncome: "Add Income",
       addExpense: "Add Expense",
       editIncome: "Edit Income",
@@ -722,7 +726,7 @@ export default function FinancePage() {
     const payload = {
       clientId: incomeForm.clientId,
       serviceId: incomeForm.serviceId || null,
-      amount: parseInt(incomeForm.amount),
+      amount: Math.round(Number(incomeForm.amount)),
       currency: incomeForm.currency,
       paymentDate: incomeForm.date,
       month,
@@ -761,7 +765,7 @@ export default function FinancePage() {
     const payload = {
       type: "expense",
       category: expenseForm.category,
-      amount: parseInt(expenseForm.amount),
+      amount: Math.round(Number(expenseForm.amount)),
       currency: expenseForm.currency,
       description: expenseForm.description,
       date: expenseForm.date,
@@ -804,7 +808,7 @@ export default function FinancePage() {
     const today = new Date().toISOString().split("T")[0];
     const payload = {
       employeeId: paymentModalEmployee,
-      amount: parseInt(payrollForm.amount),
+      amount: Math.round(Number(payrollForm.amount)),
       currency: payrollForm.currency,
       paymentDate: editingPayrollPayment?.paymentDate || today,
       period: `${selectedYear}-${selectedMonthNum.toString().padStart(2, "0")}`,
@@ -831,7 +835,7 @@ export default function FinancePage() {
     }
     const payload = {
       category: transactionEditForm.category || "other",
-      amount: parseInt(transactionEditForm.amount),
+      amount: Math.round(Number(transactionEditForm.amount)),
       currency: transactionEditForm.currency,
       description: transactionEditForm.description,
       date: transactionEditForm.date,
@@ -943,16 +947,33 @@ export default function FinancePage() {
 
   // Client finance data with services
   const clientFinanceData = useMemo(() => {
-    return clients.filter(c => c.status === "active").map(client => {
+    return clients.filter(c => c.status === "active" || c.status === "completed").map(client => {
       const services = Array.isArray(client.services) ? client.services : [];
       
       const expectedMonthly = services.reduce((sum, svc) => {
         if (svc.price && svc.currency) {
-          // Check if service is monthly
           const subPackage = subPackages.find(sp => sp.id === svc.subPackageId);
           const billingType = subPackage?.billingType || 'one_time';
-          
           if (billingType === 'monthly') {
+            return sum + convertAmount(svc.price, svc.currency as Currency, displayCurrency);
+          }
+        }
+        return sum;
+      }, 0);
+
+      // Build set of service IDs with auto-created income transactions
+      const completedServiceIdsWithTransaction = new Set(
+        transactionsData
+          .filter(t => t.type === "income" && t.relatedType === "client_service" && t.relatedId)
+          .map(t => t.relatedId!)
+      );
+
+      // One-time completed services value (completed but not yet fully paid)
+      const expectedOneTime = services.reduce((sum, svc) => {
+        if (svc.price && svc.currency && svc.status === "completed") {
+          const subPackage = subPackages.find(sp => sp.id === svc.subPackageId);
+          const billingType = subPackage?.billingType || 'one_time';
+          if (billingType !== 'monthly' && !completedServiceIdsWithTransaction.has(svc.id)) {
             return sum + convertAmount(svc.price, svc.currency as Currency, displayCurrency);
           }
         }
@@ -969,7 +990,6 @@ export default function FinancePage() {
         return sum + convertAmount(p.amount, p.currency as Currency, displayCurrency);
       }, 0);
       
-      // Calculate paid amount specifically for monthly services to determine due amount
       const paidForMonthlyServices = paymentsThisMonth.reduce((sum, p) => {
         let isMonthly = false;
         
@@ -981,7 +1001,6 @@ export default function FinancePage() {
              if (billingType === 'monthly') isMonthly = true;
            }
         } else {
-           // If no service specified, count towards monthly obligations (general payment)
            isMonthly = true;
         }
         
@@ -994,11 +1013,28 @@ export default function FinancePage() {
       const dueRaw = expectedMonthly - paidForMonthlyServices;
       const due = dueRaw > 0.01 ? dueRaw : 0;
       
+      // Calculate one-time payments received this month
+      const oneTimePaidThisMonth = paymentsThisMonth.reduce((sum, p) => {
+        if (p.serviceId) {
+          const service = services.find(s => s.id === p.serviceId);
+          if (service) {
+            const subPackage = subPackages.find(sp => sp.id === service.subPackageId);
+            const billingType = subPackage?.billingType || 'one_time';
+            if (billingType !== 'monthly') {
+              return sum + convertAmount(p.amount, p.currency as Currency, displayCurrency);
+            }
+          }
+        }
+        return sum;
+      }, 0);
+      
       return {
         client,
         services,
         expectedMonthly,
+        expectedOneTime,
         paidThisMonth,
+        oneTimePaidThisMonth,
         due,
         isOverdue: due > 0,
         payments: paymentsThisMonth,
@@ -1014,17 +1050,26 @@ export default function FinancePage() {
         netProfit: financeSummary.netProfit,
         overdueAmount: financeSummary.overdueAmount,
         payrollRemaining: financeSummary.payrollRemaining,
+        expectedRevenue: financeSummary.expectedRevenue,
+        servicesBreakdown: financeSummary.servicesBreakdown || [],
       };
     }
 
+    const totalIncome = clientPaymentsData.reduce((sum, p) => sum + convertAmount(p.amount, p.currency as Currency, displayCurrency), 0);
+    const totalExpenses = transactionsData
+      .filter(t => t.type === "expense")
+      .reduce((sum, t) => sum + convertAmount(t.amount, t.currency as Currency, displayCurrency), 0);
+
     return {
-      totalIncome: 0,
-      totalExpenses: 0,
-      netProfit: 0,
+      totalIncome,
+      totalExpenses,
+      netProfit: totalIncome - totalExpenses,
       overdueAmount: 0,
       payrollRemaining: 0,
+      expectedRevenue: 0,
+      servicesBreakdown: [],
     };
-  }, [financeSummary]);
+  }, [financeSummary, clientPaymentsData, transactionsData, convertAmount, displayCurrency]);
 
   // Get client details for sheet
   const selectedClientDetails = useMemo(() => {
@@ -1269,7 +1314,7 @@ export default function FinancePage() {
 
         {/* Overview Tab */}
         <TabsContent value="overview">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -1339,7 +1384,52 @@ export default function FinancePage() {
                 </div>
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  {t.expectedRevenue}
+                </CardTitle>
+                <TrendingUp className="h-4 w-4 text-purple-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-purple-600">
+                  {formatCurrency(overviewTotals.expectedRevenue)}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {language === "ar" ? "من الخدمات المنجزة غير المدفوعة" : "From completed unpaid services"}
+                </p>
+              </CardContent>
+            </Card>
           </div>
+
+          {overviewTotals.servicesBreakdown.length > 0 && (
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
+                  <Package className="h-4 w-4" />
+                  {t.revenueByService}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {overviewTotals.servicesBreakdown.map((item: { packageName: string; packageNameAr: string; revenue: number }, i: number) => {
+                    const total = overviewTotals.servicesBreakdown.reduce((s: number, x: { revenue: number }) => s + x.revenue, 0);
+                    const pct = total > 0 ? (item.revenue / total) * 100 : 0;
+                    return (
+                      <div key={i}>
+                        <div className="flex justify-between text-sm mb-1">
+                          <span>{language === "ar" ? item.packageNameAr : item.packageName}</span>
+                          <span className="font-medium">{formatCurrency(item.revenue)}</span>
+                        </div>
+                        <Progress value={pct} className="h-2" />
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Revenues Tab */}
@@ -1817,6 +1907,7 @@ export default function FinancePage() {
                     <TableRow>
                       <TableHead>{t.client}</TableHead>
                       <TableHead>{t.expectedMonthly}</TableHead>
+                      <TableHead>{language === "ar" ? "خدمات منجزة" : "Completed"}</TableHead>
                       <TableHead>{t.paidMonthly}</TableHead>
                       <TableHead>{t.due}</TableHead>
                       <TableHead>{t.status}</TableHead>
@@ -1824,12 +1915,13 @@ export default function FinancePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {clientFinanceData.map(({ client, expectedMonthly, paidThisMonth, due, isOverdue, services }) => (
+                    {clientFinanceData.map(({ client, expectedMonthly, expectedOneTime, paidThisMonth, due, isOverdue, services }) => (
                       <TableRow key={client.id} data-testid={`row-client-finance-${client.id}`}>
                         <TableCell className="font-medium">
                           {client.name}
                         </TableCell>
                         <TableCell>{formatCurrency(expectedMonthly)}</TableCell>
+                        <TableCell className="text-purple-600">{formatCurrency(expectedOneTime)}</TableCell>
                         <TableCell className="text-green-600">{formatCurrency(paidThisMonth)}</TableCell>
                         <TableCell className={due > 0 ? "text-orange-600" : "text-green-600"}>
                           {formatCurrency(due)}

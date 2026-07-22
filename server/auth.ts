@@ -128,31 +128,33 @@ export function requireClientAuth(req: Request, res: Response, next: NextFunctio
   next();
 }
 
-export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+export async function requireAdmin(req: Request, res: Response, next: NextFunction) {
   if (!req.session || !req.session.userId) {
     return res.status(401).json({ error: "Unauthorized: Please log in again" });
   }
-  // Always verify role from DB to avoid stale session role
-  db.select().from(users).where(eq(users.id, req.session.userId)).limit(1)
-    .then(async (found) => {
-      const user = found[0];
-      if (!user || !user.isActive) {
-        req.session.destroy(() => {});
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-      let isAdmin = false;
-      if (user.roleId) {
-        const [role] = await db.select().from(roles).where(eq(roles.id, user.roleId)).limit(1);
-        isAdmin = role?.name === "admin";
-      }
-      if (!isAdmin) {
-        return res.status(403).json({ error: "Forbidden: Admin access required" });
-      }
-      // Optionally keep session in sync
-      req.session.userRole = "admin";
-      next();
-    })
-    .catch(() => res.status(500).json({ error: "Auth check failed" }));
+  try {
+    // Always verify role from DB to avoid stale session role
+    const [user] = await db.select().from(users).where(eq(users.id, req.session.userId)).limit(1);
+    if (!user || !user.isActive) {
+      req.session.destroy(() => {});
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    let isAdmin = false;
+    if (user.roleId) {
+      const [role] = await db.select().from(roles).where(eq(roles.id, user.roleId)).limit(1);
+      isAdmin = role?.name === "admin";
+    }
+    if (!isAdmin) {
+      return res.status(403).json({ error: "Forbidden: Admin access required" });
+    }
+    // Keep session synced
+    req.session.userRole = "admin";
+    req.session.userRoleId = user.roleId || "";
+    req.session.userPermissions = getAllPermissions();
+    next();
+  } catch (e) {
+    return res.status(500).json({ error: "Auth check failed" });
+  }
 }
 
 export function requirePermission(resource: string, action: string) {

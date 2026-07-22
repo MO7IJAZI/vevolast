@@ -37,7 +37,8 @@ export function IncomeChart() {
         const monthEnd = endOfMonth(date);
         
         const monthTransactions = transactions.filter(t => {
-          const tDate = new Date(t.date);
+          const parts = t.date.split("-");
+          const tDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
           return tDate >= monthStart && tDate <= monthEnd;
         });
 
@@ -66,7 +67,8 @@ export function IncomeChart() {
         const weekEnd = endOfWeek(date, { weekStartsOn: 1 });
         
         const weekTransactions = transactions.filter(t => {
-          const tDate = new Date(t.date);
+          const parts = t.date.split("-");
+          const tDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
           return tDate >= weekStart && tDate <= weekEnd;
         });
 
@@ -155,7 +157,7 @@ export function IncomeChart() {
                   boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
                 }}
                 formatter={(value: number, name: string) => [
-                  formatCurrency(convertAmount(value, "USD", displayCurrency), displayCurrency),
+                  formatCurrency(value, displayCurrency),
                   name === "income"
                     ? language === "ar" ? "الإيرادات" : "Income"
                     : language === "ar" ? "المصروفات" : "Expenses",

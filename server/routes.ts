@@ -222,7 +222,7 @@ export async function registerRoutes(
   });
 
   // Client Services API
-  app.get("/api/client-services", async (req, res) => {
+  app.get("/api/client-services", requireAnyPermission(["clients:view", "work_tracking:view"]), async (req, res) => {
     try {
       const { clientId } = req.query;
       const services = await storage.getClientServices(clientId as string);
@@ -233,7 +233,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/client-services", async (req, res) => {
+  app.post("/api/client-services", requireAnyPermission(["clients:create", "work_tracking:create"]), async (req, res) => {
     try {
       const validated = insertClientServiceSchema.parse(req.body);
       const service = await storage.createClientService(validated);
@@ -247,7 +247,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/client-services/:id", async (req, res) => {
+  app.patch("/api/client-services/:id", requireAnyPermission(["clients:edit", "work_tracking:edit"]), async (req, res) => {
     try {
       const { deliverables, ...serviceData } = req.body;
       let service;
@@ -279,7 +279,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/client-services/:id", async (req, res) => {
+  app.delete("/api/client-services/:id", requireAnyPermission(["clients:delete", "work_tracking:delete"]), async (req, res) => {
     try {
       const deleted = await storage.deleteClientService(req.params.id);
       if (!deleted) {
@@ -488,7 +488,7 @@ export async function registerRoutes(
 
   // ========== EMPLOYEES API ROUTES ==========
 
-  app.get("/api/employees", async (req, res) => {
+  app.get("/api/employees", requireAuth, async (req, res) => {
     try {
       const employees = await storage.getEmployees();
       
@@ -508,7 +508,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/employees/:id", async (req, res) => {
+  app.get("/api/employees/:id", requireAuth, async (req, res) => {
     try {
       const employee = await storage.getEmployee(req.params.id);
       if (!employee) {
@@ -568,7 +568,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/employees/:id", async (req, res) => {
+  app.patch("/api/employees/:id", requireAuth, async (req, res) => {
     try {
       const employee = await storage.getEmployee(req.params.id);
       if (!employee) {
@@ -754,7 +754,7 @@ export async function registerRoutes(
   });
 
   // Force refresh exchange rates (admin only)
-  app.post("/api/exchange-rates/refresh", async (req, res) => {
+  app.post("/api/exchange-rates/refresh", requireAdmin, async (req, res) => {
     try {
       const rates = await refreshExchangeRates();
       if (rates) {
@@ -864,27 +864,11 @@ export async function registerRoutes(
     }
   });
 
-  // Create client payment (also creates income transaction)
+  // Create client payment (storage.createClientPayment also creates income transaction)
   app.post("/api/client-payments", requirePermission("finance", "create"), async (req, res) => {
     try {
       const validated = insertClientPaymentSchema.parse(req.body);
       const payment = await storage.createClientPayment(validated);
-      
-      // Auto-create income transaction
-      await storage.createTransaction({
-        description: `Client Payment - ${payment.month}/${payment.year}`,
-        amount: validated.amount,
-        currency: validated.currency,
-        type: "income",
-        category: "other", // Default category, could be refined
-        date: validated.paymentDate,
-        relatedId: payment.id,
-        relatedType: "client_payment",
-        status: "completed",
-        clientId: validated.clientId,
-        serviceId: validated.serviceId,
-        notes: validated.notes || "Auto-generated from client payment",
-      });
 
       res.status(201).json(payment);
     } catch (error) {
@@ -1037,7 +1021,7 @@ export async function registerRoutes(
   });
 
   // Get finance summary (totals for overview)
-  app.get("/api/finance-summary", requireAdmin, async (req, res) => {
+  app.get("/api/finance-summary", requirePermission("finance", "view_reports"), async (req, res) => {
     try {
       const { month, year, displayCurrency } = req.query;
       const summary = await storage.getFinanceSummary({
@@ -1137,7 +1121,7 @@ export async function registerRoutes(
   // ========== NOTIFICATIONS API ROUTES ==========
 
   // Get all notifications
-  app.get("/api/notifications", async (req, res) => {
+  app.get("/api/notifications", requireAuth, async (req, res) => {
     try {
       const { userId, status, startDate, endDate } = req.query;
       const notificationList = await storage.getNotifications({
@@ -1154,7 +1138,7 @@ export async function registerRoutes(
   });
 
   // Create notification
-  app.post("/api/notifications", async (req, res) => {
+  app.post("/api/notifications", requireAuth, async (req, res) => {
     try {
       const validated = insertNotificationSchema.parse(req.body);
       const notification = await storage.createNotification(validated);
@@ -1169,7 +1153,7 @@ export async function registerRoutes(
   });
 
   // Mark notification as read
-  app.patch("/api/notifications/:id/read", async (req, res) => {
+  app.patch("/api/notifications/:id/read", requireAuth, async (req, res) => {
     try {
       const success = await storage.markNotificationRead(req.params.id);
       if (!success) {
@@ -1183,7 +1167,7 @@ export async function registerRoutes(
   });
 
   // Mark all notifications as read
-  app.post("/api/notifications/mark-all-read", async (req, res) => {
+  app.post("/api/notifications/mark-all-read", requireAuth, async (req, res) => {
     try {
       const { userId } = z.object({ userId: z.string().optional() }).parse(req.body);
       const success = await storage.markAllNotificationsRead(userId || "");
@@ -1198,7 +1182,7 @@ export async function registerRoutes(
   });
 
   // Snooze notification
-  app.patch("/api/notifications/:id/snooze", async (req, res) => {
+  app.patch("/api/notifications/:id/snooze", requireAuth, async (req, res) => {
     try {
       const { snoozedUntil } = z.object({ snoozedUntil: z.string() }).parse(req.body);
       const success = await storage.snoozeNotification(req.params.id, snoozedUntil);
@@ -1216,7 +1200,7 @@ export async function registerRoutes(
   });
 
   // Delete notification
-  app.delete("/api/notifications/:id", async (req, res) => {
+  app.delete("/api/notifications/:id", requireAuth, async (req, res) => {
     try {
       const deleted = await storage.deleteNotification(req.params.id);
       if (!deleted) {
@@ -1304,7 +1288,7 @@ export async function registerRoutes(
   });
 
   // Get today's session for an employee
-  app.get("/api/work-sessions/today/:employeeId", async (req, res) => {
+  app.get("/api/work-sessions/today/:employeeId", requireAuth, async (req, res) => {
     try {
       const today = new Date().toISOString().split("T")[0];
       let session = await storage.getWorkSessionByEmployeeAndDate(req.params.employeeId, today);
@@ -1329,7 +1313,7 @@ export async function registerRoutes(
   });
 
   // Start work
-  app.post("/api/work-sessions/:id/start", async (req, res) => {
+  app.post("/api/work-sessions/:id/start", requireAuth, async (req, res) => {
     try {
       const session = await storage.getWorkSession(req.params.id);
       if (!session) {
@@ -1356,7 +1340,7 @@ export async function registerRoutes(
   });
 
   // Take break
-  app.post("/api/work-sessions/:id/break", async (req, res) => {
+  app.post("/api/work-sessions/:id/break", requireAuth, async (req, res) => {
     try {
       const { breakType, note } = z.object({
         breakType: z.enum(["short", "long", "lunch", "meeting", "other"]).optional(),
@@ -1413,7 +1397,7 @@ export async function registerRoutes(
   });
 
   // Resume work
-  app.post("/api/work-sessions/:id/resume", async (req, res) => {
+  app.post("/api/work-sessions/:id/resume", requireAuth, async (req, res) => {
     try {
       const session = await storage.getWorkSession(req.params.id);
       if (!session) {
@@ -1457,7 +1441,7 @@ export async function registerRoutes(
   });
 
   // End day
-  app.post("/api/work-sessions/:id/end", async (req, res) => {
+  app.post("/api/work-sessions/:id/end", requireAuth, async (req, res) => {
     try {
       const session = await storage.getWorkSession(req.params.id);
       if (!session) {
@@ -1499,7 +1483,7 @@ export async function registerRoutes(
   });
 
   // Admin: Reopen a session (allow employee to continue)
-  app.post("/api/work-sessions/:id/reopen", async (req, res) => {
+  app.post("/api/work-sessions/:id/reopen", requireAuth, async (req, res) => {
     try {
       const session = await storage.getWorkSession(req.params.id);
       if (!session) {

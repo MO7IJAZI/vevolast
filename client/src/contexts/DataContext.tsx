@@ -1453,7 +1453,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const canLeads = isAdmin || hasResourcePermission("leads");
   const canClients = isAdmin || hasResourcePermission("clients");
   const canWorkTracking = isAdmin || hasResourcePermission("work_tracking");
-  const canInvoices = isAdmin; // invoices endpoints are admin-only
+  const canInvoices = isAdmin || hasResourcePermission("invoices");
   const canFinance = isAdmin || hasResourcePermission("finance");
   const canGoals = isAdmin || hasResourcePermission("goals");
   
@@ -1847,7 +1847,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/client-services"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/clients"] }); // Re-compute derived state
+      queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
     },
   });
 
@@ -1878,6 +1879,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/client-services"] });
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
     },
   });
 
@@ -2144,31 +2146,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
       id,
       updates: { status: "paid" as InvoiceStatus, paidDate: getTodayString() },
     });
-
-    addTransactionMutation.mutate({
-      type: "income",
-      category: "services",
-      amount: invoice.amount,
-      currency: invoice.currency,
-      description: `فاتورة ${invoice.invoiceNumber} - ${invoice.clientName}`,
-      date: getTodayString(),
-      relatedId: id,
-      relatedType: "invoice",
-      status: "completed",
-      clientId: invoice.clientId,
-    });
-  }, [invoices, updateInvoiceMutation, addTransactionMutation]);
+  }, [invoices, updateInvoiceMutation]);
 
   // ============ FINANCE CRUD ============
 
   const updateTransactionMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<FinanceTransaction> }) => {
-      const existing = transactions.find((t) => t.id === id);
-      if (!existing) return;
-      const merged = { ...existing, ...updates };
-      await apiRequest("DELETE", `/api/transactions/${id}`);
-      const { id: _, ...payload } = merged;
-      const res = await apiRequest("POST", "/api/transactions", payload);
+      const res = await apiRequest("PATCH", `/api/transactions/${id}`, updates);
       return res.json();
     },
     onSuccess: () => {
@@ -2387,8 +2371,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
     let filtered = transactions.filter((t) => t.type === "income");
     if (month !== undefined && year !== undefined) {
       filtered = filtered.filter((t) => {
-        const d = new Date(t.date);
-        return d.getMonth() + 1 === month && d.getFullYear() === year;
+        const parts = t.date.split("-");
+        const txMonth = parseInt(parts[1]);
+        const txYear = parseInt(parts[0]);
+        return txMonth === month && txYear === year;
       });
     }
     return filtered.reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
@@ -2398,8 +2384,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
     let filtered = transactions.filter((t) => t.type === "expense");
     if (month !== undefined && year !== undefined) {
       filtered = filtered.filter((t) => {
-        const d = new Date(t.date);
-        return d.getMonth() + 1 === month && d.getFullYear() === year;
+        const parts = t.date.split("-");
+        const txMonth = parseInt(parts[1]);
+        const txYear = parseInt(parts[0]);
+        return txMonth === month && txYear === year;
       });
     }
     return filtered.reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);

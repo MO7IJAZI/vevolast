@@ -540,7 +540,7 @@ export default function SalesPage() {
                       <Input
                         type="number"
                         value={targetForm.targetRevenue}
-                        onChange={(e) => setTargetForm(prev => ({ ...prev, targetRevenue: parseInt(e.target.value) || 0 }))}
+                        onChange={(e) => setTargetForm(prev => ({ ...prev, targetRevenue: Math.round(Number(e.target.value)) || 0 }))}
                         data-testid="input-target-revenue"
                       />
                     </div>

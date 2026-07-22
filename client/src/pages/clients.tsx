@@ -43,6 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ReactivateClientModal } from "@/components/clients/reactivate-client-modal";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -269,6 +270,7 @@ export default function ClientsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [isConvertModalOpen, setIsConvertModalOpen] = useState(false);
   const [clientToConvert, setClientToConvert] = useState<ConfirmedClient | null>(null);
+  const [reactivateClientTarget, setReactivateClientTarget] = useState<ConfirmedClient | null>(null);
   
   // Completed clients filters
   const [completedFilters, setCompletedFilters] = useState({
@@ -2533,7 +2535,7 @@ export default function ClientsPage() {
                             <Button 
                               variant="outline" 
                               size="sm" 
-                              onClick={() => reactivateClient(client.id, true)}
+                              onClick={() => setReactivateClientTarget(client)}
                               data-testid={`button-reactivate-${client.id}`}
                             >
                               <RotateCcw className="h-4 w-4 me-1" />
@@ -2593,6 +2595,14 @@ export default function ClientsPage() {
       {renderClientModal(convertAmount, formatCurrency, displayCurrency)}
       {renderServiceModal(convertAmount, formatCurrency, displayCurrency)}
       {renderConvertModal()}
+
+      {reactivateClientTarget && (
+        <ReactivateClientModal
+          open={!!reactivateClientTarget}
+          onOpenChange={(open) => { if (!open) setReactivateClientTarget(null); }}
+          client={reactivateClientTarget}
+        />
+      )}
       
       {/* Employee Profile Drawer */}
       <EmployeeProfileDrawer
