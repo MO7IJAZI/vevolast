@@ -543,11 +543,15 @@ export class DatabaseStorage implements IStorage {
   }> {
     const { month, year, displayCurrency } = params;
     const now = new Date();
-    const currentMonth = month || (now.getMonth() + 1);
-    const currentYear = year || now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const currentYearNum = now.getFullYear();
+
+    // Pass undefined month/year to get all transactions when no filter is set
+    const filterMonth = month || undefined;
+    const filterYear = year || undefined;
 
     // Get all transactions for the period
-    const allTransactions = await this.getTransactions({ month: currentMonth, year: currentYear });
+    const allTransactions = await this.getTransactions({ month: filterMonth, year: filterYear });
     
     // Calculate totals with currency conversion
     let totalIncome = 0;
@@ -564,7 +568,7 @@ export class DatabaseStorage implements IStorage {
 
     // Get employee salaries to calculate payroll remaining
     const salaries = await this.getEmployeeSalaries();
-    const payrollPaymentsThisMonth = await this.getPayrollPayments({ month: currentMonth, year: currentYear });
+    const payrollPaymentsThisMonth = await this.getPayrollPayments({ month: filterMonth, year: filterYear });
     
     let totalExpectedSalaries = 0;
     let totalPaidSalaries = 0;
@@ -625,7 +629,7 @@ export class DatabaseStorage implements IStorage {
         // Check if payment for THIS month is made
         if (service.status === 'active' || service.status === 'completed') {
           const servicePaymentsThisMonth = servicePaymentsAll.filter(p => 
-            p.month === currentMonth && p.year === currentYear
+            p.month === currentMonth && p.year === currentYearNum
           );
           let totalPaidThisMonth = 0;
           for (const p of servicePaymentsThisMonth) {
