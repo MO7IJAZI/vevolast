@@ -123,7 +123,10 @@ export default function FinancePage() {
   const { convertAmount, formatCurrency, currency: displayCurrency } = useCurrency();
   const [activeTab, setActiveTab] = useState("overview");
   
-  // Selected month (YYYY-MM format)
+  // Period filter (same as dashboard)
+  const [filterPeriod, setFilterPeriod] = useState("all");
+  
+  // Selected month (YYYY-MM format) - used only when filterPeriod is "current-month"
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const year = now.getFullYear();
@@ -133,6 +136,10 @@ export default function FinancePage() {
   
   // Parse selected month
   const [selectedYear, selectedMonthNum] = selectedMonth.split("-").map(Number);
+  
+  // Resolve actual filter values based on period
+  const effectiveMonth = filterPeriod === "current-month" ? selectedMonthNum : undefined;
+  const effectiveYear = filterPeriod === "all" ? undefined : (filterPeriod === "current-year" ? now.getFullYear() : selectedYear);
   
   // Modal states
   const [incomeModalOpen, setIncomeModalOpen] = useState(false);
@@ -358,13 +365,16 @@ export default function FinancePage() {
     return `${monthName} ${selectedYear}`;
   };
 
-  // Fetch transactions for selected month (with proper query params)
+  // Fetch transactions
   const { data: transactionsDataRaw = [] } = useQuery<Transaction[]>({
-    queryKey: ["/api/transactions", { month: selectedMonthNum, year: selectedYear }],
+    queryKey: ["/api/transactions", { month: effectiveMonth, year: effectiveYear }],
     queryFn: async () => {
-      const res = await fetch(`/api/transactions?month=${selectedMonthNum}&year=${selectedYear}`, {
-        credentials: "include",
-      });
+      let url = "/api/transactions";
+      const params = new URLSearchParams();
+      if (effectiveMonth !== undefined) params.set("month", String(effectiveMonth));
+      if (effectiveYear !== undefined) params.set("year", String(effectiveYear));
+      if (params.toString()) url += "?" + params.toString();
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch transactions");
       return res.json();
     },
@@ -372,13 +382,16 @@ export default function FinancePage() {
   });
   const transactionsData = Array.isArray(transactionsDataRaw) ? transactionsDataRaw : [];
 
-  // Fetch client payments for selected month (with proper query params)
+  // Fetch client payments
   const { data: clientPaymentsDataRaw = [] } = useQuery<ClientPayment[]>({
-    queryKey: ["/api/client-payments", { month: selectedMonthNum, year: selectedYear }],
+    queryKey: ["/api/client-payments", { month: effectiveMonth, year: effectiveYear }],
     queryFn: async () => {
-      const res = await fetch(`/api/client-payments?month=${selectedMonthNum}&year=${selectedYear}`, {
-        credentials: "include",
-      });
+      let url = "/api/client-payments";
+      const params = new URLSearchParams();
+      if (effectiveMonth !== undefined) params.set("month", String(effectiveMonth));
+      if (effectiveYear !== undefined) params.set("year", String(effectiveYear));
+      if (params.toString()) url += "?" + params.toString();
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch client payments");
       return res.json();
     },
@@ -386,13 +399,16 @@ export default function FinancePage() {
   });
   const clientPaymentsData = Array.isArray(clientPaymentsDataRaw) ? clientPaymentsDataRaw : [];
 
-  // Fetch payroll payments for selected month (with proper query params)
+  // Fetch payroll payments
   const { data: payrollPaymentsDataRaw = [] } = useQuery<PayrollPayment[]>({
-    queryKey: ["/api/payroll-payments", { month: selectedMonthNum, year: selectedYear }],
+    queryKey: ["/api/payroll-payments", { month: effectiveMonth, year: effectiveYear }],
     queryFn: async () => {
-      const res = await fetch(`/api/payroll-payments?month=${selectedMonthNum}&year=${selectedYear}`, {
-        credentials: "include",
-      });
+      let url = "/api/payroll-payments";
+      const params = new URLSearchParams();
+      if (effectiveMonth !== undefined) params.set("month", String(effectiveMonth));
+      if (effectiveYear !== undefined) params.set("year", String(effectiveYear));
+      if (params.toString()) url += "?" + params.toString();
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch payroll payments");
       return res.json();
     },
@@ -409,11 +425,15 @@ export default function FinancePage() {
 
   // Fetch finance summary
   const { data: financeSummary } = useQuery({
-    queryKey: ["/api/finance-summary", { month: selectedMonthNum, year: selectedYear, displayCurrency }],
+    queryKey: ["/api/finance-summary", { month: effectiveMonth, year: effectiveYear, displayCurrency }],
     queryFn: async () => {
-      const res = await fetch(`/api/finance-summary?month=${selectedMonthNum}&year=${selectedYear}&displayCurrency=${displayCurrency}`, {
-        credentials: "include",
-      });
+      let url = "/api/finance-summary";
+      const params = new URLSearchParams();
+      if (effectiveMonth !== undefined) params.set("month", String(effectiveMonth));
+      if (effectiveYear !== undefined) params.set("year", String(effectiveYear));
+      params.set("displayCurrency", displayCurrency);
+      url += "?" + params.toString();
+      const res = await fetch(url, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch finance summary");
       return res.json();
     },
@@ -806,12 +826,15 @@ export default function FinancePage() {
     }
 
     const today = new Date().toISOString().split("T")[0];
+    const paymentPeriod = filterPeriod === "current-month"
+      ? `${selectedYear}-${selectedMonthNum.toString().padStart(2, "0")}`
+      : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const payload = {
       employeeId: paymentModalEmployee,
       amount: Math.round(Number(payrollForm.amount)),
       currency: payrollForm.currency,
       paymentDate: editingPayrollPayment?.paymentDate || today,
-      period: `${selectedYear}-${selectedMonthNum.toString().padStart(2, "0")}`,
+      period: paymentPeriod,
       status: "paid",
       notes: payrollForm.notes || null,
     };
@@ -897,14 +920,23 @@ export default function FinancePage() {
   }, [clients]);
 
   const isServiceInSelectedMonth = (service: any) => {
+    if (filterPeriod === "all") return true;
     const dates = [service.startDate, service.dueDate, service.completedDate].filter(Boolean) as string[];
+    if (filterPeriod === "current-year") {
+      return dates.some((date) => date.startsWith(String(effectiveYear)));
+    }
     return dates.some((date) => date.startsWith(selectedMonth));
   };
 
   const payrollData = useMemo(() => {
     return employees.map(emp => {
       const salaryConfig = employeeSalariesData.find(s => s.employeeId === emp.id);
-      const paymentsThisMonth = payrollPaymentsData.filter(p => p.employeeId === emp.id && p.period === selectedMonth);
+      const paymentsThisMonth = payrollPaymentsData.filter(p => {
+        if (p.employeeId !== emp.id) return false;
+        if (filterPeriod === "all") return true;
+        if (filterPeriod === "current-year") return p.period.startsWith(String(effectiveYear));
+        return p.period === selectedMonth;
+      });
       const payType = emp.salaryType || "monthly";
       const salaryCurrency = (emp.salaryCurrency || salaryConfig?.currency || "USD") as Currency;
       const monthlyAmount = emp.salaryAmount ?? (payType === "monthly" ? (salaryConfig?.amount || 0) : 0);
@@ -980,11 +1012,12 @@ export default function FinancePage() {
         return sum;
       }, 0);
       
-      const paymentsThisMonth = clientPaymentsData.filter(p => 
-        p.clientId === client.id && 
-        p.year === selectedYear && 
-        p.month === selectedMonthNum
-      );
+      const paymentsThisMonth = clientPaymentsData.filter(p => {
+        if (p.clientId !== client.id) return false;
+        if (filterPeriod === "all") return true;
+        if (filterPeriod === "current-year") return p.year === effectiveYear;
+        return p.year === selectedYear && p.month === selectedMonthNum;
+      });
       
       const paidThisMonth = paymentsThisMonth.reduce((sum, p) => {
         return sum + convertAmount(p.amount, p.currency as Currency, displayCurrency);
@@ -1040,7 +1073,7 @@ export default function FinancePage() {
         payments: paymentsThisMonth,
       };
     });
-  }, [clients, clientPaymentsData, displayCurrency, convertAmount, subPackages, selectedYear, selectedMonthNum]);
+  }, [clients, clientPaymentsData, displayCurrency, convertAmount, subPackages, filterPeriod, effectiveYear, selectedYear, selectedMonthNum]);
 
   const overviewTotals = useMemo(() => {
     if (financeSummary) {
@@ -1242,28 +1275,48 @@ export default function FinancePage() {
         <h1 className="text-2xl font-bold">{t.title}</h1>
         
         <div className="flex items-center gap-4 flex-wrap">
-          {/* Month Selector */}
-          <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-2 py-1">
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={goToPreviousMonth}
-              data-testid="button-prev-month"
-            >
-              <ChevronRight className="h-4 w-4 rtl:rotate-0 rotate-180" />
-            </Button>
-            <div className="min-w-[140px] text-center font-medium" data-testid="text-selected-month">
-              {formatMonthDisplay()}
+          {/* Period Filter (same as dashboard) */}
+          <Select value={filterPeriod} onValueChange={(v) => setFilterPeriod(v)}>
+            <SelectTrigger className="w-[160px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">
+                {language === "ar" ? "كل الأوقات" : "All Time"}
+              </SelectItem>
+              <SelectItem value="current-month">
+                {language === "ar" ? "هذا الشهر" : "This Month"}
+              </SelectItem>
+              <SelectItem value="current-year">
+                {language === "ar" ? "هذه السنة" : "This Year"}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Month Selector - only visible when "current-month" is selected */}
+          {filterPeriod === "current-month" && (
+            <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-2 py-1">
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={goToPreviousMonth}
+                data-testid="button-prev-month"
+              >
+                <ChevronRight className="h-4 w-4 rtl:rotate-0 rotate-180" />
+              </Button>
+              <div className="min-w-[140px] text-center font-medium" data-testid="text-selected-month">
+                {formatMonthDisplay()}
+              </div>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={goToNextMonth}
+                data-testid="button-next-month"
+              >
+                <ChevronLeft className="h-4 w-4 rtl:rotate-0 rotate-180" />
+              </Button>
             </div>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={goToNextMonth}
-              data-testid="button-next-month"
-            >
-              <ChevronLeft className="h-4 w-4 rtl:rotate-0 rotate-180" />
-            </Button>
-          </div>
+          )}
           
           {/* Action Buttons */}
           <div className="flex gap-2">

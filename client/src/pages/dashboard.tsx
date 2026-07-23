@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "wouter";
 import {
   Wallet,
@@ -24,6 +25,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -46,9 +54,21 @@ export default function Dashboard() {
   const currentMonth = now.getMonth() + 1;
   const currentYear = now.getFullYear();
 
-  const totalIncome = getTotalIncome(currentMonth, currentYear);
-  const totalExpenses = getTotalExpenses(currentMonth, currentYear);
-  const netProfit = getNetProfit(currentMonth, currentYear);
+  const [filterPeriod, setFilterPeriod] = useState("all");
+
+  let filterMonth: number | undefined;
+  let filterYear: number | undefined;
+  if (filterPeriod === "current-month") {
+    filterMonth = currentMonth;
+    filterYear = currentYear;
+  } else if (filterPeriod === "current-year") {
+    filterYear = currentYear;
+  }
+  // "all" keeps both undefined => all time
+
+  const totalIncome = getTotalIncome(filterMonth, filterYear);
+  const totalExpenses = getTotalExpenses(filterMonth, filterYear);
+  const netProfit = getNetProfit(filterMonth, filterYear);
   const balance = totalIncome - totalExpenses;
 
   const currentMonthGoals = goals.filter(
@@ -118,8 +138,30 @@ export default function Dashboard() {
             {txt.welcome}
           </h1>
           <p className="text-muted-foreground">
-            {t("month." + currentMonth)} {currentYear}
+            {filterPeriod === "all"
+              ? (language === "ar" ? "جميع الفترات" : "All Time")
+              : filterPeriod === "current-year"
+              ? currentYear.toString()
+              : `${t("month." + currentMonth)} ${currentYear}`}
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={filterPeriod} onValueChange={setFilterPeriod}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder={language === "ar" ? "اختر الفترة" : "Select period"} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">
+                {language === "ar" ? "كل الأوقات" : "All Time"}
+              </SelectItem>
+              <SelectItem value="current-month">
+                {language === "ar" ? "هذا الشهر" : "This Month"}
+              </SelectItem>
+              <SelectItem value="current-year">
+                {language === "ar" ? "هذه السنة" : "This Year"}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
