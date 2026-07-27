@@ -668,27 +668,49 @@ export function registerAuthRoutes(app: Express) {
       if (existingUser) {
         return res.status(400).json({ error: "User with this email already exists" });
       }
+
+      const [role] = await db.select().from(roles).where(eq(roles.id, roleId)).limit(1);
+      if (!role) {
+        return res.status(400).json({ error: "Selected role is invalid" });
+      }
       
       const token = generateToken();
       const expiresAt = new Date(Date.now() + INVITE_EXPIRY_HOURS * 60 * 60 * 1000);
-      
-      await db.insert(invitations).values({
+
+      const invitationPayload = {
         id: crypto.randomUUID(),
         email: email.toLowerCase(),
         token,
         name,
         nameEn,
-        roleId: roleId,
+        roleId,
         permissions: permissions || [],
         department,
         employeeId,
         profileImage,
         invitedBy: req.session.userId,
         expiresAt,
-      });
-      
-      // We might need to fetch the role name for the email
-      const [role] = await db.select().from(roles).where(eq(roles.id, roleId)).limit(1);
+      };
+
+      try {
+        await db.insert(invitations).values(invitationPayload);
+      } catch (insertError: any) {
+        const insertMessage = String(insertError?.message || insertError || "");
+        const missingProfileImageColumn =
+          insertMessage.includes("profile_image")
+          && (
+            insertMessage.includes("Unknown column")
+            || insertMessage.includes("doesn't exist")
+          );
+
+        if (!missingProfileImageColumn) {
+          throw insertError;
+        }
+
+        console.warn("Invitation insert fallback: invitations.profile_image column is missing, retrying without it.");
+        const { profileImage: _profileImage, ...payloadWithoutProfileImage } = invitationPayload;
+        await db.insert(invitations).values(payloadWithoutProfileImage);
+      }
 
       const emailSent = await sendInvitationEmail(
         email.toLowerCase(),
@@ -705,6 +727,10 @@ export function registerAuthRoutes(app: Express) {
       });
     } catch (error) {
       console.error("Invite error:", error);
+      const message = String((error as any)?.message || "");
+      if (message.includes("role_id")) {
+        return res.status(500).json({ error: "Invitation schema is out of date. Please update the database schema." });
+      }
       res.status(500).json({ error: "Failed to create invitation" });
     }
   });
