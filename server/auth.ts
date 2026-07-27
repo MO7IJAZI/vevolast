@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { db } from "./db";
 import { users, invitations, passwordResets, clientUsers, roles, employees, ALL_PERMISSIONS } from "../shared/schema.js";
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, sql } from "drizzle-orm";
 import { sendInvitationEmail, sendPasswordResetEmail } from "./email";
 
 const SALT_ROUNDS = 12;
@@ -702,14 +702,43 @@ export function registerAuthRoutes(app: Express) {
             insertMessage.includes("Unknown column")
             || insertMessage.includes("doesn't exist")
           );
+        const missingRoleIdColumn =
+          insertMessage.includes("role_id")
+          && (
+            insertMessage.includes("Unknown column")
+            || insertMessage.includes("doesn't exist")
+          );
 
-        if (!missingProfileImageColumn) {
-          throw insertError;
+        if (missingRoleIdColumn) {
+          console.warn("Invitation insert fallback: invitations.role_id column is missing, retrying with legacy role column.");
+          await db.execute(sql`
+            INSERT INTO invitations (
+              id, email, role, permissions, token, expires_at, status, name, name_en, department, employee_id, invited_by, created_at
+            ) VALUES (
+              ${invitationPayload.id},
+              ${invitationPayload.email},
+              ${role.name},
+              ${JSON.stringify(invitationPayload.permissions || [])},
+              ${invitationPayload.token},
+              ${invitationPayload.expiresAt},
+              ${"pending"},
+              ${invitationPayload.name ?? null},
+              ${invitationPayload.nameEn ?? null},
+              ${invitationPayload.department ?? null},
+              ${invitationPayload.employeeId ?? null},
+              ${invitationPayload.invitedBy ?? null},
+              NOW()
+            )
+          `);
+        } else {
+          if (!missingProfileImageColumn) {
+            throw insertError;
+          }
+
+          console.warn("Invitation insert fallback: invitations.profile_image column is missing, retrying without it.");
+          const { profileImage: _profileImage, ...payloadWithoutProfileImage } = invitationPayload;
+          await db.insert(invitations).values(payloadWithoutProfileImage);
         }
-
-        console.warn("Invitation insert fallback: invitations.profile_image column is missing, retrying without it.");
-        const { profileImage: _profileImage, ...payloadWithoutProfileImage } = invitationPayload;
-        await db.insert(invitations).values(payloadWithoutProfileImage);
       }
 
       const emailSent = await sendInvitationEmail(
@@ -727,10 +756,6 @@ export function registerAuthRoutes(app: Express) {
       });
     } catch (error) {
       console.error("Invite error:", error);
-      const message = String((error as any)?.message || "");
-      if (message.includes("role_id")) {
-        return res.status(500).json({ error: "Invitation schema is out of date. Please update the database schema." });
-      }
       res.status(500).json({ error: "Failed to create invitation" });
     }
   });
