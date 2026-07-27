@@ -6,6 +6,7 @@ import {
   Calendar, ArrowUpRight, ArrowDownRight, CircleDollarSign, ChevronLeft, ChevronRight,
   ChevronDown, Package, CheckCircle2, Circle, Pencil, Trash2
 } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Legend } from "recharts";
 import { Button } from "@/components/ui/button";
 import { HasPermission } from "@/components/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -102,6 +103,76 @@ const DELIVERABLE_LABELS: Record<string, { ar: string; en: string }> = {
   launch: { ar: "الإطلاق", en: "Launch" },
 };
 
+const PACKAGE_COLORS: Record<string, string> = {
+  "main-pkg-1": "hsl(262, 83%, 58%)",
+  "main-pkg-2": "hsl(217, 91%, 60%)",
+  "main-pkg-3": "hsl(239, 84%, 67%)",
+  "main-pkg-4": "hsl(25, 95%, 53%)",
+  "main-pkg-5": "hsl(172, 66%, 50%)",
+  "main-pkg-6": "hsl(142, 76%, 36%)",
+};
+
+type FinanceSummaryResponse = {
+  totalIncome: number;
+  totalExpenses: number;
+  netProfit: number;
+  overdueAmount: number;
+  payrollRemaining: number;
+  expectedRevenue: number;
+  servicesBreakdown: { packageName: string; packageNameAr: string; revenue: number }[];
+  expenseBreakdown: { key: string; label: string; labelAr: string; amount: number }[];
+  displayCurrency: string;
+};
+
+type FinanceLedgerEntry = {
+  id: string;
+  recordId: string;
+  source: "transaction" | "client_payment" | "payroll_payment" | "service_completion";
+  type: "income" | "expense";
+  category: string;
+  description: string;
+  amount: number;
+  currency: Currency;
+  convertedAmount: number;
+  date: string;
+  relatedId: string | null;
+  relatedType: string | null;
+  status: string;
+  notes: string | null;
+  clientId: string | null;
+  serviceId: string | null;
+  employeeId: string | null;
+  isSystemManaged: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  lockedReason: string | null;
+  displayCurrency: string;
+};
+
+type FinancePayrollReportItem = {
+  employeeId: string;
+  payType: string;
+  salaryCurrency: Currency;
+  monthlyAmount: number;
+  rateAmount: number;
+  rateUnitsCount: number;
+  paidThisPeriod: number;
+  remaining: number;
+  expectedSalary: number;
+  payments: PayrollPayment[];
+};
+
+type FinanceClientReportItem = {
+  clientId: string;
+  expectedMonthly: number;
+  expectedOneTime: number;
+  paidThisPeriod: number;
+  oneTimePaidThisPeriod: number;
+  due: number;
+  isOverdue: boolean;
+  payments: ClientPayment[];
+};
+
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -119,27 +190,27 @@ export default function FinancePage() {
     return null;
   }
   const { language } = useLanguage();
-  const { clients, employees, subPackages } = useData();
+  const { clients, employees, subPackages, mainPackages } = useData();
   const { convertAmount, formatCurrency, currency: displayCurrency } = useCurrency();
   const [activeTab, setActiveTab] = useState("overview");
   
-  // Period filter (same as dashboard)
+  const now = new Date();
+  
   const [filterPeriod, setFilterPeriod] = useState("all");
   
-  // Selected month (YYYY-MM format) - used only when filterPeriod is "current-month"
-  const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(() => {
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, "0");
     return `${year}-${month}`;
   });
   
-  // Parse selected month
+  const [selectedFilterYear, setSelectedFilterYear] = useState(() => now.getFullYear());
+  
   const [selectedYear, selectedMonthNum] = selectedMonth.split("-").map(Number);
   
   // Resolve actual filter values based on period
-  const effectiveMonth = filterPeriod === "current-month" ? selectedMonthNum : undefined;
-  const effectiveYear = filterPeriod === "all" ? undefined : (filterPeriod === "current-year" ? now.getFullYear() : selectedYear);
+  const effectiveMonth = filterPeriod === "specific-month" ? selectedMonthNum : undefined;
+  const effectiveYear = filterPeriod === "all" ? undefined : (filterPeriod === "specific-year" ? selectedFilterYear : selectedYear);
   
   // Modal states
   const [incomeModalOpen, setIncomeModalOpen] = useState(false);
@@ -160,6 +231,7 @@ export default function FinancePage() {
     currency: "USD" as Currency,
     date: new Date().toISOString().split("T")[0],
     notes: "",
+    incomeType: "client_payment" as "client_payment" | "external",
   });
   
   const [expenseForm, setExpenseForm] = useState({
@@ -191,6 +263,29 @@ export default function FinancePage() {
     clientId: "",
     serviceId: "",
   });
+
+  const [revenueTypeFilter, setRevenueTypeFilter] = useState("all");
+  const [revenueClientFilter, setRevenueClientFilter] = useState("all");
+  const [revenueServiceFilter, setRevenueServiceFilter] = useState("all");
+  const [revenueCurrencyFilter, setRevenueCurrencyFilter] = useState("all");
+
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState("all");
+  const [expenseClientFilter, setExpenseClientFilter] = useState("all");
+  const [expenseServiceFilter, setExpenseServiceFilter] = useState("all");
+  const [expenseCurrencyFilter, setExpenseCurrencyFilter] = useState("all");
+
+  const [payrollEmployeeFilter, setPayrollEmployeeFilter] = useState("all");
+  const [payrollPayTypeFilter, setPayrollPayTypeFilter] = useState("all");
+  const [payrollCurrencyFilter, setPayrollCurrencyFilter] = useState("all");
+
+  const [ledgerTypeFilter, setLedgerTypeFilter] = useState("all");
+  const [ledgerCategoryFilter, setLedgerCategoryFilter] = useState("all");
+  const [ledgerClientFilter, setLedgerClientFilter] = useState("all");
+  const [ledgerEmployeeFilter, setLedgerEmployeeFilter] = useState("all");
+  const [ledgerCurrencyFilter, setLedgerCurrencyFilter] = useState("all");
+
+  const [clientFinanceClientFilter, setClientFinanceClientFilter] = useState("all");
+  const [clientFinanceStatusFilter, setClientFinanceStatusFilter] = useState("all");
 
   // Translations
   const t = useMemo(() => ({
@@ -226,9 +321,13 @@ export default function FinancePage() {
       description: "الوصف",
       date: "التاريخ",
       month: "الشهر",
+      year: "السنة",
       type: "النوع",
       income: "إيراد",
       expense: "مصروف",
+      externalIncome: "إيراد خارجي",
+      directTransaction: "معاملة مباشرة",
+      incomeType: "نوع الإيراد",
       save: "حفظ",
       cancel: "إلغاء",
       employee: "الموظف",
@@ -252,6 +351,7 @@ export default function FinancePage() {
       linkedEntity: "الجهة المرتبطة",
       linkedClient: "العميل المرتبط",
       linkedService: "الخدمة المرتبطة",
+      clientPayment: "دفعة عميل",
       selectService: "اختر خدمة",
       status: "الحالة",
       addPayment: "إضافة دفعة",
@@ -300,9 +400,13 @@ export default function FinancePage() {
       description: "Description",
       date: "Date",
       month: "Month",
+      year: "Year",
       type: "Type",
       income: "Income",
       expense: "Expense",
+      externalIncome: "External Income",
+      directTransaction: "Direct Transaction",
+      incomeType: "Income Type",
       save: "Save",
       cancel: "Cancel",
       employee: "Employee",
@@ -326,6 +430,7 @@ export default function FinancePage() {
       linkedEntity: "Linked Entity",
       linkedClient: "Linked Client",
       linkedService: "Linked Service",
+      clientPayment: "Client Payment",
       selectService: "Select Service",
       status: "Status",
       addPayment: "Add Payment",
@@ -424,7 +529,7 @@ export default function FinancePage() {
   const employeeSalariesData = Array.isArray(employeeSalariesDataRaw) ? employeeSalariesDataRaw : [];
 
   // Fetch finance summary
-  const { data: financeSummary } = useQuery({
+  const { data: financeSummary } = useQuery<FinanceSummaryResponse>({
     queryKey: ["/api/finance-summary", { month: effectiveMonth, year: effectiveYear, displayCurrency }],
     queryFn: async () => {
       let url = "/api/finance-summary";
@@ -437,10 +542,71 @@ export default function FinancePage() {
       if (!res.ok) throw new Error("Failed to fetch finance summary");
       return res.json();
     },
+    enabled: canFinance,
   });
 
+  const { data: financeLedgerRaw = [] } = useQuery<FinanceLedgerEntry[]>({
+    queryKey: ["/api/finance-ledger", { month: effectiveMonth, year: effectiveYear, displayCurrency }],
+    queryFn: async () => {
+      let url = "/api/finance-ledger";
+      const params = new URLSearchParams();
+      if (effectiveMonth !== undefined) params.set("month", String(effectiveMonth));
+      if (effectiveYear !== undefined) params.set("year", String(effectiveYear));
+      params.set("displayCurrency", displayCurrency);
+      url += "?" + params.toString();
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch finance ledger");
+      return res.json();
+    },
+    enabled: canFinance,
+  });
+  const financeLedger = Array.isArray(financeLedgerRaw) ? financeLedgerRaw : [];
+
+  const { data: financePayrollReportRaw = [] } = useQuery<FinancePayrollReportItem[]>({
+    queryKey: ["/api/finance-payroll-report", { month: effectiveMonth, year: effectiveYear, displayCurrency }],
+    queryFn: async () => {
+      let url = "/api/finance-payroll-report";
+      const params = new URLSearchParams();
+      if (effectiveMonth !== undefined) params.set("month", String(effectiveMonth));
+      if (effectiveYear !== undefined) params.set("year", String(effectiveYear));
+      params.set("displayCurrency", displayCurrency);
+      url += "?" + params.toString();
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch finance payroll report");
+      return res.json();
+    },
+    enabled: canFinance,
+  });
+  const financePayrollReport = Array.isArray(financePayrollReportRaw) ? financePayrollReportRaw : [];
+
+  const { data: financeClientReportRaw = [] } = useQuery<FinanceClientReportItem[]>({
+    queryKey: ["/api/finance-client-report", { month: effectiveMonth, year: effectiveYear, displayCurrency }],
+    queryFn: async () => {
+      let url = "/api/finance-client-report";
+      const params = new URLSearchParams();
+      if (effectiveMonth !== undefined) params.set("month", String(effectiveMonth));
+      if (effectiveYear !== undefined) params.set("year", String(effectiveYear));
+      params.set("displayCurrency", displayCurrency);
+      url += "?" + params.toString();
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch finance client report");
+      return res.json();
+    },
+    enabled: canFinance,
+  });
+  const financeClientReport = Array.isArray(financeClientReportRaw) ? financeClientReportRaw : [];
+
+  const invalidateFinanceReports = () => {
+    queryClient.invalidateQueries({
+      predicate: (query) =>
+        Array.isArray(query.queryKey)
+        && typeof query.queryKey[0] === "string"
+        && query.queryKey[0].startsWith("/api/finance-"),
+    });
+  };
+
   const resetIncomeForm = () => {
-    setIncomeForm({ clientId: "", serviceId: "", amount: "", currency: "USD", date: new Date().toISOString().split("T")[0], notes: "" });
+    setIncomeForm({ clientId: "", serviceId: "", amount: "", currency: "USD", date: new Date().toISOString().split("T")[0], notes: "", incomeType: "client_payment" });
   };
 
   const resetExpenseForm = () => {
@@ -484,7 +650,7 @@ export default function FinancePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceReports();
       setExpenseModalOpen(false);
       resetExpenseForm();
       toast({
@@ -509,7 +675,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceReports();
       setIncomeModalOpen(false);
       resetIncomeForm();
       setEditingClientPayment(null);
@@ -535,7 +701,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceReports();
       setPaymentModalEmployee(null);
       resetPayrollForm();
       setEditingPayrollPayment(null);
@@ -561,7 +727,7 @@ export default function FinancePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceReports();
       setExpenseModalOpen(false);
       setTransactionEditModalOpen(false);
       setEditingTransaction(null);
@@ -589,7 +755,7 @@ export default function FinancePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceReports();
       toast({
         title: language === "ar" ? "تم بنجاح" : "Success",
         description: language === "ar" ? "تم حذف المعاملة بنجاح" : "Transaction deleted successfully",
@@ -611,7 +777,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceReports();
       setIncomeModalOpen(false);
       setEditingClientPayment(null);
       resetIncomeForm();
@@ -636,7 +802,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceReports();
       toast({
         title: language === "ar" ? "تم بنجاح" : "Success",
         description: language === "ar" ? "تم حذف الدفعة بنجاح" : "Payment deleted successfully",
@@ -658,7 +824,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceReports();
       setPaymentModalEmployee(null);
       setEditingPayrollPayment(null);
       resetPayrollForm();
@@ -683,7 +849,7 @@ export default function FinancePage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/payroll-payments"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceReports();
       toast({
         title: language === "ar" ? "تم بنجاح" : "Success",
         description: language === "ar" ? "تم حذف دفعة الراتب بنجاح" : "Payroll payment deleted successfully",
@@ -705,6 +871,63 @@ export default function FinancePage() {
 
   // Handle income submission
   const handleIncomeSubmit = () => {
+    if (incomeForm.incomeType === "external") {
+      if (!incomeForm.notes) {
+        toast({
+          variant: "destructive",
+          title: language === "ar" ? "تنبيه" : "Warning",
+          description: language === "ar" ? "يرجى إدخال الوصف" : "Please enter a description",
+        });
+        return;
+      }
+      if (!incomeForm.amount) {
+        toast({
+          variant: "destructive",
+          title: language === "ar" ? "تنبيه" : "Warning",
+          description: language === "ar" ? "يرجى إدخال المبلغ" : "Please enter the amount",
+        });
+        return;
+      }
+
+      const { year, month } = getMonthYearFromDate(incomeForm.date);
+      const payload = {
+        type: "income",
+        category: "other",
+        amount: Math.round(Number(incomeForm.amount)),
+        currency: incomeForm.currency,
+        description: incomeForm.notes,
+        date: incomeForm.date,
+        month,
+        year,
+        notes: null,
+        relatedId: null,
+        relatedType: null,
+        clientId: null,
+        serviceId: null,
+      };
+
+      createTransactionMutation.mutate(payload, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+          invalidateFinanceReports();
+          setIncomeModalOpen(false);
+          resetIncomeForm();
+          toast({
+            title: language === "ar" ? "تم بنجاح" : "Success",
+            description: language === "ar" ? "تم تسجيل الإيراد الخارجي بنجاح" : "External income recorded successfully",
+          });
+        },
+        onError: (error: Error) => {
+          toast({
+            variant: "destructive",
+            title: language === "ar" ? "خطأ" : "Error",
+            description: language === "ar" ? `فشل تسجيل الإيراد الخارجي: ${error.message}` : `Failed to record external income: ${error.message}`,
+          });
+        }
+      });
+      return;
+    }
+
     if (!incomeForm.clientId) {
       toast({
         variant: "destructive",
@@ -826,7 +1049,7 @@ export default function FinancePage() {
     }
 
     const today = new Date().toISOString().split("T")[0];
-    const paymentPeriod = filterPeriod === "current-month"
+    const paymentPeriod = filterPeriod === "specific-month"
       ? `${selectedYear}-${selectedMonthNum.toString().padStart(2, "0")}`
       : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const payload = {
@@ -908,207 +1131,243 @@ export default function FinancePage() {
   
   // Expense transactions (excluding payroll for separate handling)
   const expenseTransactions = transactionsData.filter(t => t.type === "expense");
+  const transactionsById = useMemo(() => new Map(transactionsData.map((tx) => [tx.id, tx])), [transactionsData]);
+  const clientPaymentsById = useMemo(() => new Map(clientPaymentsData.map((payment) => [payment.id, payment])), [clientPaymentsData]);
+  const payrollPaymentsById = useMemo(() => new Map(payrollPaymentsData.map((payment) => [payment.id, payment])), [payrollPaymentsData]);
+  const allServices = useMemo(
+    () => clients.flatMap((client) => (Array.isArray(client.services) ? client.services : [])),
+    [clients]
+  );
 
-  const allServices = useMemo(() => {
-    return clients.flatMap(client => {
-      return (Array.isArray(client.services) ? client.services : []).map(service => ({
-        ...service,
-        clientId: client.id,
-        clientName: client.name,
-      }));
-    });
-  }, [clients]);
+  const payrollData = financePayrollReport;
 
-  const isServiceInSelectedMonth = (service: any) => {
-    if (filterPeriod === "all") return true;
-    const dates = [service.startDate, service.dueDate, service.completedDate].filter(Boolean) as string[];
-    if (filterPeriod === "current-year") {
-      return dates.some((date) => date.startsWith(String(effectiveYear)));
-    }
-    return dates.some((date) => date.startsWith(selectedMonth));
-  };
-
-  const payrollData = useMemo(() => {
-    return employees.map(emp => {
-      const salaryConfig = employeeSalariesData.find(s => s.employeeId === emp.id);
-      const paymentsThisMonth = payrollPaymentsData.filter(p => {
-        if (p.employeeId !== emp.id) return false;
-        if (filterPeriod === "all") return true;
-        if (filterPeriod === "current-year") return p.period.startsWith(String(effectiveYear));
-        return p.period === selectedMonth;
-      });
-      const payType = emp.salaryType || "monthly";
-      const salaryCurrency = (emp.salaryCurrency || salaryConfig?.currency || "USD") as Currency;
-      const monthlyAmount = emp.salaryAmount ?? (payType === "monthly" ? (salaryConfig?.amount || 0) : 0);
-      const rateAmount = emp.rate ?? (payType === "per_project" ? (salaryConfig?.amount || 0) : 0);
-      const assignedServices = allServices.filter(service => (service.serviceAssignees || []).includes(emp.id));
-      const assignedServicesThisMonth = assignedServices.filter(isServiceInSelectedMonth);
-      const rateUnitsCount = assignedServicesThisMonth.length;
-      const expectedBase = payType === "monthly" ? monthlyAmount : rateAmount * rateUnitsCount;
-      const totalPaid = paymentsThisMonth.reduce((sum, p) => {
-        return sum + convertAmount(p.amount, p.currency as Currency, displayCurrency);
-      }, 0);
-      const expectedSalary = expectedBase
-        ? convertAmount(expectedBase, salaryCurrency, displayCurrency)
-        : 0;
-      
-      const remainingRaw = expectedSalary - totalPaid;
-      const remaining = remainingRaw > 0.01 ? remainingRaw : 0;
-      
-      return {
-        employee: emp,
-        salaryConfig,
-        payType,
-        salaryCurrency,
-        monthlyAmount,
-        rateAmount,
-        rateUnitsCount,
-        paidThisMonth: totalPaid,
-        remaining,
-        expectedSalary,
-        payments: paymentsThisMonth,
-      };
-    });
-  }, [employees, employeeSalariesData, payrollPaymentsData, displayCurrency, allServices, selectedMonth, convertAmount]);
-
-  // Get selected employee payroll data
   const selectedEmployeePayroll = useMemo(() => {
     if (!selectedPayrollEmployee) return null;
-    return payrollData.find(p => p.employee.id === selectedPayrollEmployee);
+    const item = payrollData.find((entry) => entry.employeeId === selectedPayrollEmployee);
+    return item ? { ...item, paidThisMonth: item.paidThisPeriod } : null;
   }, [selectedPayrollEmployee, payrollData]);
 
-  // Client finance data with services
-  const clientFinanceData = useMemo(() => {
-    return clients.filter(c => c.status === "active" || c.status === "completed").map(client => {
-      const services = Array.isArray(client.services) ? client.services : [];
-      
-      const expectedMonthly = services.reduce((sum, svc) => {
-        if (svc.price && svc.currency) {
-          const subPackage = subPackages.find(sp => sp.id === svc.subPackageId);
-          const billingType = subPackage?.billingType || 'one_time';
-          if (billingType === 'monthly') {
-            return sum + convertAmount(svc.price, svc.currency as Currency, displayCurrency);
-          }
-        }
-        return sum;
-      }, 0);
+  const clientFinanceData = financeClientReport;
 
-      // Build set of service IDs with auto-created income transactions
-      const completedServiceIdsWithTransaction = new Set(
-        transactionsData
-          .filter(t => t.type === "income" && t.relatedType === "client_service" && t.relatedId)
-          .map(t => t.relatedId!)
-      );
+   const overviewTotals = useMemo(() => {
+     if (financeSummary) {
+       return {
+         totalIncome: financeSummary.totalIncome,
+         totalExpenses: financeSummary.totalExpenses,
+         netProfit: financeSummary.netProfit,
+         overdueAmount: financeSummary.overdueAmount,
+         payrollRemaining: financeSummary.payrollRemaining,
+         expectedRevenue: financeSummary.expectedRevenue,
+         servicesBreakdown: financeSummary.servicesBreakdown || [],
+       };
+     }
 
-      // One-time completed services value (completed but not yet fully paid)
-      const expectedOneTime = services.reduce((sum, svc) => {
-        if (svc.price && svc.currency && svc.status === "completed") {
-          const subPackage = subPackages.find(sp => sp.id === svc.subPackageId);
-          const billingType = subPackage?.billingType || 'one_time';
-          if (billingType !== 'monthly' && !completedServiceIdsWithTransaction.has(svc.id)) {
-            return sum + convertAmount(svc.price, svc.currency as Currency, displayCurrency);
-          }
-        }
-        return sum;
-      }, 0);
-      
-      const paymentsThisMonth = clientPaymentsData.filter(p => {
-        if (p.clientId !== client.id) return false;
-        if (filterPeriod === "all") return true;
-        if (filterPeriod === "current-year") return p.year === effectiveYear;
-        return p.year === selectedYear && p.month === selectedMonthNum;
-      });
-      
-      const paidThisMonth = paymentsThisMonth.reduce((sum, p) => {
-        return sum + convertAmount(p.amount, p.currency as Currency, displayCurrency);
-      }, 0);
-      
-      const paidForMonthlyServices = paymentsThisMonth.reduce((sum, p) => {
-        let isMonthly = false;
-        
-        if (p.serviceId) {
-           const service = services.find(s => s.id === p.serviceId);
-           if (service) {
-             const subPackage = subPackages.find(sp => sp.id === service.subPackageId);
-             const billingType = subPackage?.billingType || 'one_time';
-             if (billingType === 'monthly') isMonthly = true;
-           }
-        } else {
-           isMonthly = true;
-        }
-        
-        if (isMonthly) {
-           return sum + convertAmount(p.amount, p.currency as Currency, displayCurrency);
-        }
-        return sum;
-      }, 0);
-      
-      const dueRaw = expectedMonthly - paidForMonthlyServices;
-      const due = dueRaw > 0.01 ? dueRaw : 0;
-      
-      // Calculate one-time payments received this month
-      const oneTimePaidThisMonth = paymentsThisMonth.reduce((sum, p) => {
-        if (p.serviceId) {
-          const service = services.find(s => s.id === p.serviceId);
-          if (service) {
-            const subPackage = subPackages.find(sp => sp.id === service.subPackageId);
-            const billingType = subPackage?.billingType || 'one_time';
-            if (billingType !== 'monthly') {
-              return sum + convertAmount(p.amount, p.currency as Currency, displayCurrency);
-            }
-          }
-        }
-        return sum;
-      }, 0);
-      
-      return {
-        client,
-        services,
-        expectedMonthly,
-        expectedOneTime,
-        paidThisMonth,
-        oneTimePaidThisMonth,
-        due,
-        isOverdue: due > 0,
-        payments: paymentsThisMonth,
-      };
-    });
-  }, [clients, clientPaymentsData, displayCurrency, convertAmount, subPackages, filterPeriod, effectiveYear, selectedYear, selectedMonthNum]);
+     const totalIncome = financeLedger
+       .filter((entry) => entry.type === "income")
+       .reduce((sum, entry) => sum + entry.convertedAmount, 0);
+     const totalExpenses = financeLedger
+       .filter((entry) => entry.type === "expense")
+       .reduce((sum, entry) => sum + entry.convertedAmount, 0);
 
-  const overviewTotals = useMemo(() => {
-    if (financeSummary) {
-      return {
-        totalIncome: financeSummary.totalIncome,
-        totalExpenses: financeSummary.totalExpenses,
-        netProfit: financeSummary.netProfit,
-        overdueAmount: financeSummary.overdueAmount,
-        payrollRemaining: financeSummary.payrollRemaining,
-        expectedRevenue: financeSummary.expectedRevenue,
-        servicesBreakdown: financeSummary.servicesBreakdown || [],
-      };
-    }
+     return {
+       totalIncome,
+       totalExpenses,
+       netProfit: totalIncome - totalExpenses,
+       overdueAmount: 0,
+       payrollRemaining: 0,
+       expectedRevenue: 0,
+       servicesBreakdown: [],
+     };
+    }, [financeSummary, financeLedger]);
 
-    const totalIncome = clientPaymentsData.reduce((sum, p) => sum + convertAmount(p.amount, p.currency as Currency, displayCurrency), 0);
-    const totalExpenses = transactionsData
-      .filter(t => t.type === "expense")
-      .reduce((sum, t) => sum + convertAmount(t.amount, t.currency as Currency, displayCurrency), 0);
+   const filteredRevenues = useMemo(() => {
+     return financeLedger
+       .filter((entry) => {
+         if (entry.type !== "income") return false;
+         if (revenueTypeFilter === "client_payment" && entry.source !== "client_payment") return false;
+         if (revenueTypeFilter === "transaction" && entry.source === "client_payment") return false;
+         if (revenueClientFilter !== "all" && entry.clientId !== revenueClientFilter) return false;
+         if (revenueServiceFilter !== "all" && entry.serviceId !== revenueServiceFilter) return false;
+         if (revenueCurrencyFilter !== "all" && entry.currency !== revenueCurrencyFilter) return false;
+         return true;
+       })
+       .map((entry) => ({
+         id: entry.id,
+         recordId: entry.recordId,
+         source: entry.source,
+         canEdit: entry.canEdit,
+         canDelete: entry.canDelete,
+         lockedReason: entry.lockedReason,
+         clientName: getClientName(entry.clientId),
+         serviceName: getServiceName(entry.serviceId),
+         originalAmount: entry.amount,
+         originalCurrency: entry.currency as Currency,
+         convertedAmount: entry.convertedAmount,
+         date: entry.date,
+       }));
+   }, [financeLedger, revenueTypeFilter, revenueClientFilter, revenueServiceFilter, revenueCurrencyFilter]);
 
-    return {
-      totalIncome,
-      totalExpenses,
-      netProfit: totalIncome - totalExpenses,
-      overdueAmount: 0,
-      payrollRemaining: 0,
-      expectedRevenue: 0,
-      servicesBreakdown: [],
-    };
-  }, [financeSummary, clientPaymentsData, transactionsData, convertAmount, displayCurrency]);
+   const filteredExpenses = useMemo(() => {
+     return financeLedger
+       .filter((entry) => {
+         if (entry.type !== "expense") return false;
+         if (expenseCategoryFilter !== "all" && entry.category !== expenseCategoryFilter) return false;
+         if (expenseClientFilter !== "all" && entry.clientId !== expenseClientFilter) return false;
+         if (expenseServiceFilter !== "all" && entry.serviceId !== expenseServiceFilter) return false;
+         if (expenseCurrencyFilter !== "all" && entry.currency !== expenseCurrencyFilter) return false;
+         return true;
+       })
+       .map((entry) => ({
+         id: entry.id,
+         recordId: entry.recordId,
+         source: entry.source,
+         canEdit: entry.canEdit,
+         canDelete: entry.canDelete,
+         lockedReason: entry.lockedReason,
+         category: entry.category || "other",
+         employeeName: entry.employeeId ? getEmployeeName(entry.employeeId) : "-",
+         description: entry.description || "-",
+         originalAmount: entry.amount,
+         originalCurrency: entry.currency as Currency,
+         convertedAmount: entry.convertedAmount,
+         date: entry.date,
+       }));
+   }, [financeLedger, expenseCategoryFilter, expenseClientFilter, expenseServiceFilter, expenseCurrencyFilter]);
 
-  // Get client details for sheet
-  const selectedClientDetails = useMemo(() => {
+   const filteredPayrollData = useMemo(() => {
+     return payrollData
+       .filter(item => {
+         if (payrollEmployeeFilter !== "all" && item.employeeId !== payrollEmployeeFilter) return false;
+         if (payrollPayTypeFilter !== "all" && item.payType !== payrollPayTypeFilter) return false;
+         if (payrollCurrencyFilter !== "all" && item.salaryCurrency !== payrollCurrencyFilter) return false;
+         return true;
+       })
+       .map(item => {
+         const employee = employees.find((emp) => emp.id === item.employeeId);
+         if (!employee) return null;
+         return {
+         employee,
+         payType: item.payType,
+         salaryCurrency: item.salaryCurrency,
+         monthlyAmount: item.monthlyAmount,
+         rateAmount: item.rateAmount,
+         rateUnitsCount: item.rateUnitsCount,
+         paidThisMonth: item.paidThisPeriod,
+         remaining: item.remaining,
+         expectedSalary: item.expectedSalary,
+         payments: item.payments,
+       };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+   }, [payrollData, payrollEmployeeFilter, payrollPayTypeFilter, payrollCurrencyFilter, employees]);
+
+   const filteredLedger = useMemo(() => {
+     return financeLedger
+       .filter((entry) => {
+         if (ledgerTypeFilter !== "all" && entry.type !== ledgerTypeFilter) return false;
+         if (ledgerCategoryFilter !== "all" && entry.category !== ledgerCategoryFilter) return false;
+         if (ledgerClientFilter !== "all" && entry.clientId !== ledgerClientFilter) return false;
+         if (ledgerEmployeeFilter !== "all" && entry.employeeId !== ledgerEmployeeFilter) return false;
+         if (ledgerCurrencyFilter !== "all" && entry.currency !== ledgerCurrencyFilter) return false;
+         return true;
+       })
+       .map((entry) => ({
+         ...entry,
+         linkedEntity: entry.employeeId
+           ? getEmployeeName(entry.employeeId)
+           : entry.serviceId
+             ? getServiceName(entry.serviceId)
+             : entry.clientId
+               ? getClientName(entry.clientId)
+               : "-",
+       }));
+   }, [financeLedger, ledgerTypeFilter, ledgerCategoryFilter, ledgerClientFilter, ledgerEmployeeFilter, ledgerCurrencyFilter]);
+
+   const ledgerCategoryOptions = useMemo(() => {
+     return Array.from(new Set(financeLedger.map((entry) => entry.category).filter(Boolean)))
+       .sort((a, b) => a.localeCompare(b))
+       .map((category) => ({
+         value: category,
+         label: getCategoryLabel(category),
+       }));
+   }, [financeLedger, language]);
+
+   const filteredClientFinanceData = useMemo(() => {
+     return clientFinanceData
+       .filter(item => {
+         if (clientFinanceClientFilter !== "all" && item.clientId !== clientFinanceClientFilter) return false;
+         if (clientFinanceStatusFilter === "overdue" && !item.isOverdue) return false;
+         if (clientFinanceStatusFilter === "paid" && item.isOverdue) return false;
+         return true;
+       })
+       .map(item => {
+         const client = clients.find((entry) => entry.id === item.clientId);
+         if (!client) return null;
+         return {
+         client,
+         expectedMonthly: item.expectedMonthly,
+         expectedOneTime: item.expectedOneTime,
+         paidThisMonth: item.paidThisPeriod,
+         due: item.due,
+         isOverdue: item.isOverdue,
+         services: Array.isArray(client.services) ? client.services : [],
+         payments: item.payments,
+       };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+    }, [clientFinanceData, clientFinanceClientFilter, clientFinanceStatusFilter, clients]);
+
+   const overviewRevenueByPackage = useMemo(() => {
+     return (financeSummary?.servicesBreakdown || [])
+       .map((item, index) => {
+         const matchedPackage = mainPackages.find((pkg) =>
+           pkg.name === item.packageNameAr || pkg.nameEn === item.packageName
+         );
+         const key = matchedPackage?.id || `pkg-${index}`;
+         return {
+           name: item.packageName,
+           nameAr: item.packageNameAr,
+           value: item.revenue,
+           color: PACKAGE_COLORS[key] || "hsl(0, 0%, 50%)",
+         };
+       })
+       .filter(item => item.value > 0)
+       .sort((a, b) => b.value - a.value);
+   }, [financeSummary, mainPackages]);
+
+    const overviewExpenseByCategory = useMemo(() => {
+     const categoryIcons: Record<string, string> = {
+       salaries: "hsl(38, 92%, 50%)",
+       ads: "hsl(217, 91%, 55%)",
+       tools: "hsl(280, 65%, 60%)",
+       subscriptions: "hsl(172, 66%, 50%)",
+       refunds: "hsl(0, 84%, 60%)",
+       rent: "hsl(262, 83%, 58%)",
+       utilities: "hsl(25, 95%, 53%)",
+       other: "hsl(0, 0%, 60%)",
+     };
+
+     return (financeSummary?.expenseBreakdown || [])
+       .map((item) => ({
+         name: language === "ar" ? item.labelAr : item.label,
+         value: item.amount,
+         color: categoryIcons[item.key] || "hsl(0, 0%, 60%)",
+       }))
+       .filter(item => item.value > 0)
+       .sort((a, b) => b.value - a.value);
+    }, [financeSummary, language]);
+
+   const selectedClientDetails = useMemo(() => {
     if (!clientDetailsSheet) return null;
-    return clientFinanceData.find(c => c.client.id === clientDetailsSheet);
-  }, [clientDetailsSheet, clientFinanceData]);
+    const client = clients.find((entry) => entry.id === clientDetailsSheet);
+    const report = clientFinanceData.find((entry) => entry.clientId === clientDetailsSheet);
+    if (!client || !report) return null;
+    return {
+      client,
+      services: Array.isArray(client.services) ? client.services : [],
+      payments: report.payments,
+    };
+  }, [clientDetailsSheet, clientFinanceData, clients]);
 
   const incomeClientServices = useMemo(() => {
     const client = clients.find(c => c.id === incomeForm.clientId);
@@ -1210,6 +1469,7 @@ export default function FinancePage() {
       currency: payment.currency as Currency,
       date: payment.paymentDate,
       notes: payment.notes || "",
+      incomeType: "client_payment",
     });
     setIncomeModalOpen(true);
   };
@@ -1275,7 +1535,7 @@ export default function FinancePage() {
         <h1 className="text-2xl font-bold">{t.title}</h1>
         
         <div className="flex items-center gap-4 flex-wrap">
-          {/* Period Filter (same as dashboard) */}
+          {/* Professional Period Filter */}
           <Select value={filterPeriod} onValueChange={(v) => setFilterPeriod(v)}>
             <SelectTrigger className="w-[160px]">
               <SelectValue />
@@ -1284,17 +1544,16 @@ export default function FinancePage() {
               <SelectItem value="all">
                 {language === "ar" ? "كل الأوقات" : "All Time"}
               </SelectItem>
-              <SelectItem value="current-month">
-                {language === "ar" ? "هذا الشهر" : "This Month"}
+              <SelectItem value="specific-month">
+                {language === "ar" ? "شهر محدد" : "Specific Month"}
               </SelectItem>
-              <SelectItem value="current-year">
-                {language === "ar" ? "هذه السنة" : "This Year"}
+              <SelectItem value="specific-year">
+                {language === "ar" ? "سنة محدد" : "Specific Year"}
               </SelectItem>
             </SelectContent>
           </Select>
 
-          {/* Month Selector - only visible when "current-month" is selected */}
-          {filterPeriod === "current-month" && (
+          {filterPeriod === "specific-month" && (
             <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-2 py-1">
               <Button 
                 variant="ghost" 
@@ -1304,9 +1563,42 @@ export default function FinancePage() {
               >
                 <ChevronRight className="h-4 w-4 rtl:rotate-0 rotate-180" />
               </Button>
-              <div className="min-w-[140px] text-center font-medium" data-testid="text-selected-month">
-                {formatMonthDisplay()}
-              </div>
+              <Select
+                value={String(selectedMonthNum)}
+                onValueChange={(monthStr) => {
+                  const month = Number(monthStr);
+                  setSelectedMonth(`${selectedYear}-${String(month).padStart(2, "0")}`);
+                }}
+              >
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({length: 12}, (_, i) => (
+                    <SelectItem key={i+1} value={String(i+1)}>
+                      {MONTH_NAMES[language][i]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={String(selectedYear)}
+                onValueChange={(yearStr) => {
+                  setSelectedMonth(`${yearStr}-${String(selectedMonthNum).padStart(2, "0")}`);
+                }}
+              >
+                <SelectTrigger className="w-[110px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-[240px]">
+                  {Array.from({length: 10}, (_, i) => {
+                    const y = now.getFullYear() - 5 + i;
+                    return (
+                      <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
               <Button 
                 variant="ghost" 
                 size="icon" 
@@ -1315,7 +1607,29 @@ export default function FinancePage() {
               >
                 <ChevronLeft className="h-4 w-4 rtl:rotate-0 rotate-180" />
               </Button>
+              <div className="min-w-[140px] text-center font-medium" data-testid="text-selected-month">
+                {formatMonthDisplay()}
+              </div>
             </div>
+          )}
+
+          {filterPeriod === "specific-year" && (
+            <Select
+              value={String(selectedFilterYear)}
+              onValueChange={(yearStr) => setSelectedFilterYear(Number(yearStr))}
+            >
+              <SelectTrigger className="w-[110px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-[240px]">
+                {Array.from({length: 10}, (_, i) => {
+                  const y = now.getFullYear() - 5 + i;
+                  return (
+                    <SelectItem key={y} value={String(y)}>{y}</SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
           )}
           
           {/* Action Buttons */}
@@ -1456,33 +1770,81 @@ export default function FinancePage() {
             </Card>
           </div>
 
-          {overviewTotals.servicesBreakdown.length > 0 && (
-            <Card className="mt-4">
-              <CardHeader>
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <Package className="h-4 w-4" />
-                  {t.revenueByService}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {overviewTotals.servicesBreakdown.map((item: { packageName: string; packageNameAr: string; revenue: number }, i: number) => {
-                    const total = overviewTotals.servicesBreakdown.reduce((s: number, x: { revenue: number }) => s + x.revenue, 0);
-                    const pct = total > 0 ? (item.revenue / total) * 100 : 0;
-                    return (
-                      <div key={i}>
-                        <div className="flex justify-between text-sm mb-1">
-                          <span>{language === "ar" ? item.packageNameAr : item.packageName}</span>
-                          <span className="font-medium">{formatCurrency(item.revenue)}</span>
-                        </div>
-                        <Progress value={pct} className="h-2" />
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+          {/* Revenue by Package Pie Chart */}
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <Package className="h-4 w-4" />
+                {language === "ar" ? "الإيرادات حسب الباقة" : "Revenue by Package"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  {overviewRevenueByPackage.length > 0 ? (
+                    <PieChart>
+                      <Pie
+                        data={overviewRevenueByPackage}
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={100}
+                        dataKey="value"
+                        label={({ name, percent, payload }) => {
+                          const displayName = payload?.nameAr || name;
+                          return `${displayName} (${(percent * 100).toFixed(0)}%)`;
+                        }}
+                      >
+                        {overviewRevenueByPackage.map((entry, index) => (
+                          <Cell key={`cell-revenue-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Legend />
+                    </PieChart>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                      {t.noTransactions}
+                    </div>
+                  )}
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Expenses by Category Pie Chart */}
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                {language === "ar" ? "المصروفات حسب الفئة" : "Expenses by Category"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  {overviewExpenseByCategory.length > 0 ? (
+                    <PieChart>
+                      <Pie
+                        data={overviewExpenseByCategory}
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={100}
+                        dataKey="value"
+                        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                      >
+                        {overviewExpenseByCategory.map((entry, index) => (
+                          <Cell key={`cell-expense-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Legend />
+                    </PieChart>
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                      {t.noTransactions}
+                    </div>
+                  )}
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Revenues Tab */}
@@ -1498,7 +1860,56 @@ export default function FinancePage() {
               </HasPermission>
             </CardHeader>
             <CardContent>
-              {incomeTransactions.length === 0 && clientPaymentsData.length === 0 ? (
+              <div className="flex flex-wrap gap-2 mb-4">
+                <Select value={revenueTypeFilter} onValueChange={setRevenueTypeFilter}>
+                  <SelectTrigger className="w-[160px]">
+                    <SelectValue placeholder={t.type} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t.type}</SelectItem>
+                    <SelectItem value="client_payment">{t.clientPayment}</SelectItem>
+                    <SelectItem value="transaction">{t.directTransaction}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={revenueClientFilter} onValueChange={setRevenueClientFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder={t.client} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                    {clients.map(client => (
+                      <SelectItem key={client.id} value={client.id}>
+                        {client.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={revenueServiceFilter} onValueChange={setRevenueServiceFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder={t.service} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                    {allServices.map(service => (
+                      <SelectItem key={service.id} value={service.id}>
+                        {language === "ar" ? service.serviceName : service.serviceNameEn || service.serviceName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={revenueCurrencyFilter} onValueChange={setRevenueCurrencyFilter}>
+                  <SelectTrigger className="w-[120px]">
+                    <SelectValue placeholder="Currency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                    {CURRENCIES.map(curr => (
+                      <SelectItem key={curr} value={curr}>{CURRENCY_SYMBOLS[curr]} {curr}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {filteredRevenues.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">{t.noTransactions}</div>
               ) : (
                 <Table>
@@ -1513,78 +1924,84 @@ export default function FinancePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {/* Show client payments as income */}
-                    {clientPaymentsData.map(payment => (
-                      <TableRow key={`payment-${payment.id}`} data-testid={`row-income-${payment.id}`}>
-                        <TableCell>{getClientName(payment.clientId)}</TableCell>
-                        <TableCell>{getServiceName((payment as any).serviceId)}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{formatCurrency(payment.amount, payment.currency as Currency)}</Badge>
-                        </TableCell>
-                        <TableCell className="font-medium text-green-600">
-                          {formatCurrency(convertAmount(payment.amount, payment.currency as Currency, displayCurrency))}
-                        </TableCell>
-                        <TableCell>{payment.paymentDate}</TableCell>
-                        <TableCell>
-                          <HasPermission permission="finance:edit">
-                          <div className="flex gap-1">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => openClientPaymentEdit(payment)}
-                              data-testid={`button-edit-payment-${payment.id}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => confirmDelete(() => deleteClientPaymentMutation.mutate(payment.id))}
-                              data-testid={`button-delete-payment-${payment.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-red-500" />
-                            </Button>
-                          </div>
-                          </HasPermission>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                    {/* Show direct income transactions */}
-                    {incomeTransactions.map(tx => (
-                      <TableRow key={tx.id} data-testid={`row-income-${tx.id}`}>
-                        <TableCell>{getClientName(tx.clientId || null)}</TableCell>
-                        <TableCell>{getServiceName(tx.serviceId)}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{formatCurrency(tx.amount, tx.currency as Currency)}</Badge>
-                        </TableCell>
-                        <TableCell className="font-medium text-green-600">
-                        {formatCurrency(convertAmount(tx.amount, tx.currency as Currency, displayCurrency))}
+                    {filteredRevenues.map(item => {
+                      const isClientPayment = item.source === "client_payment";
+                      const directTransaction = transactionsById.get(item.recordId);
+                      const clientPayment = clientPaymentsById.get(item.recordId);
+                      return (
+                        <TableRow key={item.id} data-testid={`row-income-${item.id}`}>
+                          <TableCell>{item.clientName}</TableCell>
+                          <TableCell>{item.serviceName}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{formatCurrency(item.originalAmount, item.originalCurrency)}</Badge>
+                          </TableCell>
+                          <TableCell className="font-medium text-green-600">
+                            {formatCurrency(item.convertedAmount)}
+                          </TableCell>
+                          <TableCell>{item.date}</TableCell>
+                          <TableCell>
+                            <HasPermission permission="finance:edit">
+                            <div className="flex gap-1">
+                              {isClientPayment ? (
+                                <>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => clientPayment && openClientPaymentEdit(clientPayment)}
+                                    disabled={!item.canEdit || !clientPayment}
+                                    title={item.lockedReason || undefined}
+                                    data-testid={`button-edit-payment-${item.id}`}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => clientPayment && confirmDelete(() => deleteClientPaymentMutation.mutate(clientPayment.id))}
+                                    disabled={!item.canDelete || !clientPayment}
+                                    title={item.lockedReason || undefined}
+                                    data-testid={`button-delete-payment-${item.id}`}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </>
+                              ) : (
+                                <>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => directTransaction && openTransactionEdit(directTransaction)}
+                                    disabled={!item.canEdit || !directTransaction}
+                                    title={item.lockedReason || undefined}
+                                    data-testid={`button-edit-transaction-${item.id}`}
+                                  >
+                                    <Pencil className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    onClick={() => directTransaction && confirmDelete(() => deleteTransactionMutation.mutate(directTransaction.id))}
+                                    disabled={!item.canDelete || !directTransaction}
+                                    title={item.lockedReason || undefined}
+                                    data-testid={`button-delete-transaction-${item.id}`}
+                                  >
+                                    <Trash2 className="h-4 w-4 text-red-500" />
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                            </HasPermission>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                    <TableRow className="bg-muted/50 font-medium">
+                      <TableCell colSpan={3} className="text-right">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
+                      <TableCell className="text-green-600">
+                        {formatCurrency(filteredRevenues.reduce((sum, item) => sum + item.convertedAmount, 0))}
                       </TableCell>
-                        <TableCell>{tx.date}</TableCell>
-                        <TableCell>
-                          <HasPermission permission="finance:edit">
-                          <div className="flex gap-1">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => openTransactionEdit(tx)}
-                              data-testid={`button-edit-transaction-${tx.id}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => confirmDelete(() => deleteTransactionMutation.mutate(tx.id))}
-                              data-testid={`button-delete-transaction-${tx.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-red-500" />
-                            </Button>
-                          </div>
-                          </HasPermission>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                      <TableCell colSpan={2}></TableCell>
+                    </TableRow>
                   </TableBody>
                 </Table>
               )}
@@ -1605,7 +2022,59 @@ export default function FinancePage() {
               </HasPermission>
             </CardHeader>
             <CardContent>
-              {expenseTransactions.length === 0 ? (
+              <div className="flex flex-wrap gap-2 mb-4">
+                <Select value={expenseCategoryFilter} onValueChange={setExpenseCategoryFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder={t.category} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t.category}</SelectItem>
+                    {EXPENSE_CATEGORIES.map(cat => (
+                      <SelectItem key={cat.value} value={cat.value}>
+                        {language === "ar" ? cat.labelAr : cat.labelEn}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={expenseClientFilter} onValueChange={setExpenseClientFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder={t.client} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                    {clients.map(client => (
+                      <SelectItem key={client.id} value={client.id}>
+                        {client.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={expenseServiceFilter} onValueChange={setExpenseServiceFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder={t.service} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                    {allServices.map(service => (
+                      <SelectItem key={service.id} value={service.id}>
+                        {language === "ar" ? service.serviceName : service.serviceNameEn || service.serviceName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={expenseCurrencyFilter} onValueChange={setExpenseCurrencyFilter}>
+                  <SelectTrigger className="w-[120px]">
+                    <SelectValue placeholder="Currency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                    {CURRENCIES.map(curr => (
+                      <SelectItem key={curr} value={curr}>{CURRENCY_SYMBOLS[curr]} {curr}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {filteredExpenses.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">{t.noTransactions}</div>
               ) : (
                 <Table>
@@ -1621,27 +2090,40 @@ export default function FinancePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {expenseTransactions.map(tx => (
+                    {filteredExpenses.map(tx => (
                       <TableRow key={tx.id} data-testid={`row-expense-${tx.id}`}>
                         <TableCell>
-                          <Badge variant="secondary">{getCategoryLabel(tx.category || "other")}</Badge>
+                          <Badge variant="secondary">{getCategoryLabel(tx.category)}</Badge>
                         </TableCell>
-                        <TableCell>{getExpenseEmployeeName(tx)}</TableCell>
-                        <TableCell>{tx.description || "-"}</TableCell>
+                        <TableCell>{tx.employeeName}</TableCell>
+                        <TableCell>{tx.description}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{formatCurrency(tx.amount, tx.currency as Currency)}</Badge>
+                          <Badge variant="outline">{formatCurrency(tx.originalAmount, tx.originalCurrency)}</Badge>
                         </TableCell>
                         <TableCell className="font-medium text-red-600">
-                        {formatCurrency(convertAmount(tx.amount, tx.currency as Currency, displayCurrency))}
+                        {formatCurrency(tx.convertedAmount)}
                       </TableCell>
                         <TableCell>{tx.date}</TableCell>
                         <TableCell>
                           <HasPermission permission="finance:edit">
                           <div className="flex gap-1">
+                            {(() => {
+                              const directTransaction = transactionsById.get(tx.recordId);
+                              const payrollPayment = payrollPaymentsById.get(tx.recordId);
+                              return (
+                                <>
                             <Button
                               size="icon"
                               variant="ghost"
-                              onClick={() => openExpenseEdit(tx)}
+                              onClick={() => {
+                                if (tx.source === "payroll_payment") {
+                                  payrollPayment && openPayrollPaymentEdit(payrollPayment);
+                                  return;
+                                }
+                                directTransaction && openExpenseEdit(directTransaction);
+                              }}
+                              disabled={!tx.canEdit || (tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
+                              title={tx.lockedReason || undefined}
                               data-testid={`button-edit-expense-${tx.id}`}
                             >
                               <Pencil className="h-4 w-4" />
@@ -1650,24 +2132,36 @@ export default function FinancePage() {
                               size="icon"
                               variant="ghost"
                               onClick={() => {
-                                const payrollPayment = findPayrollPaymentForTransaction(tx);
                                 confirmDelete(() => {
-                                  if (payrollPayment) {
+                                  if (tx.source === "payroll_payment" && payrollPayment) {
                                     deletePayrollPaymentMutation.mutate(payrollPayment.id);
-                                  } else {
-                                    deleteTransactionMutation.mutate(tx.id);
+                                  } else if (directTransaction) {
+                                    deleteTransactionMutation.mutate(directTransaction.id);
                                   }
                                 });
                               }}
+                              disabled={!tx.canDelete || (tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
+                              title={tx.lockedReason || undefined}
                               data-testid={`button-delete-expense-${tx.id}`}
                             >
                               <Trash2 className="h-4 w-4 text-red-500" />
                             </Button>
+                                </>
+                              );
+                            })()}
                           </div>
                           </HasPermission>
                         </TableCell>
                       </TableRow>
                     ))}
+                    <TableRow className="bg-muted/50 font-medium">
+                      <TableCell colSpan={3} className="text-right">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
+                      <TableCell colSpan={1}></TableCell>
+                      <TableCell className="text-red-600">
+                        {formatCurrency(filteredExpenses.reduce((sum, tx) => sum + tx.convertedAmount, 0))}
+                      </TableCell>
+                      <TableCell colSpan={2}></TableCell>
+                    </TableRow>
                   </TableBody>
                 </Table>
               )}
@@ -1700,7 +2194,7 @@ export default function FinancePage() {
                     </Button>
                     
                     {employees.map(emp => {
-                      const empData = payrollData.find(p => p.employee.id === emp.id);
+                      const empData = payrollData.find(p => p.employeeId === emp.id);
                       return (
                         <Button
                           key={emp.id}
@@ -1734,9 +2228,10 @@ export default function FinancePage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {selectedPayrollEmployee && selectedEmployeePayroll ? (
-                  // Single employee details
-                  <div className="space-y-6">
+                {selectedPayrollEmployee && selectedEmployeePayroll && (
+                  <>
+                    {/* Single employee details */}
+                    <div className="space-y-6">
                     {/* Pay type and salary info */}
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="p-4 rounded-lg bg-muted/50">
@@ -1869,9 +2364,48 @@ export default function FinancePage() {
                         </Table>
                       </div>
                     )}
+                    </div>
+                  </>
+                )}
+                {(!selectedPayrollEmployee || !selectedEmployeePayroll) && (
+                  <>
+                    {/* All employees table */}
+                    <div className="flex flex-wrap gap-2 mb-4">
+                    <Select value={payrollEmployeeFilter} onValueChange={setPayrollEmployeeFilter}>
+                      <SelectTrigger className="w-[200px]">
+                        <SelectValue placeholder={t.employee} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                        {employees.map(emp => (
+                          <SelectItem key={emp.id} value={emp.id}>
+                            {language === "ar" ? emp.name : emp.nameEn || emp.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={payrollPayTypeFilter} onValueChange={setPayrollPayTypeFilter}>
+                      <SelectTrigger className="w-[140px]">
+                        <SelectValue placeholder={t.payType} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">{t.payType}</SelectItem>
+                        <SelectItem value="monthly">{t.monthly}</SelectItem>
+                        <SelectItem value="per_project">{t.perProject}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={payrollCurrencyFilter} onValueChange={setPayrollCurrencyFilter}>
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue placeholder="Currency" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                        {CURRENCIES.map(curr => (
+                          <SelectItem key={curr} value={curr}>{CURRENCY_SYMBOLS[curr]} {curr}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
-                ) : (
-                  // All employees table
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -1884,7 +2418,7 @@ export default function FinancePage() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {payrollData.map(({ employee, payType, monthlyAmount, rateAmount, salaryCurrency, rateUnitsCount, paidThisMonth, remaining }) => (
+                      {filteredPayrollData.map(({ employee, payType, monthlyAmount, rateAmount, salaryCurrency, rateUnitsCount, paidThisMonth, remaining }) => (
                         <TableRow key={employee.id} data-testid={`row-payroll-${employee.id}`}>
                           <TableCell className="font-medium">
                             {language === "ar" ? employee.name : employee.nameEn || employee.name}
@@ -1937,8 +2471,19 @@ export default function FinancePage() {
                           </TableCell>
                         </TableRow>
                       ))}
+                      <TableRow className="bg-muted/50 font-medium">
+                        <TableCell colSpan={3} className="text-right">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
+                        <TableCell className="text-green-600">
+                          {formatCurrency(filteredPayrollData.reduce((sum, item) => sum + item.paidThisMonth, 0))}
+                        </TableCell>
+                        <TableCell className={filteredPayrollData.reduce((sum, item) => sum + item.remaining, 0) > 0 ? "text-orange-600" : "text-green-600"}>
+                          {formatCurrency(filteredPayrollData.reduce((sum, item) => sum + item.remaining, 0))}
+                        </TableCell>
+                        <TableCell></TableCell>
+                      </TableRow>
                     </TableBody>
-                  </Table>
+                    </Table>
+                  </>
                 )}
               </CardContent>
             </Card>
@@ -1952,7 +2497,32 @@ export default function FinancePage() {
               <CardTitle>{t.clientFinance}</CardTitle>
             </CardHeader>
             <CardContent>
-              {clientFinanceData.length === 0 ? (
+              <div className="flex flex-wrap gap-2 mb-4">
+                <Select value={clientFinanceClientFilter} onValueChange={setClientFinanceClientFilter}>
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder={t.client} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                    {clients.map(client => (
+                      <SelectItem key={client.id} value={client.id}>
+                        {client.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={clientFinanceStatusFilter} onValueChange={setClientFinanceStatusFilter}>
+                  <SelectTrigger className="w-[160px]">
+                    <SelectValue placeholder={t.status} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t.status}</SelectItem>
+                    <SelectItem value="overdue">{t.overdue}</SelectItem>
+                    <SelectItem value="paid">{t.paid}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {filteredClientFinanceData.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">{t.noClients}</div>
               ) : (
                 <Table>
@@ -1968,7 +2538,7 @@ export default function FinancePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {clientFinanceData.map(({ client, expectedMonthly, expectedOneTime, paidThisMonth, due, isOverdue, services }) => (
+                    {filteredClientFinanceData.map(({ client, expectedMonthly, expectedOneTime, paidThisMonth, due, isOverdue, services }) => (
                       <TableRow key={client.id} data-testid={`row-client-finance-${client.id}`}>
                         <TableCell className="font-medium">
                           {client.name}
@@ -2013,6 +2583,16 @@ export default function FinancePage() {
                         </TableCell>
                       </TableRow>
                     ))}
+                    <TableRow className="bg-muted/50 font-medium">
+                      <TableCell colSpan={3} className="text-right">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
+                      <TableCell className="text-green-600">
+                        {formatCurrency(filteredClientFinanceData.reduce((sum, item) => sum + item.paidThisMonth, 0))}
+                      </TableCell>
+                      <TableCell className={filteredClientFinanceData.reduce((sum, item) => sum + item.due, 0) > 0 ? "text-orange-600" : "text-green-600"}>
+                        {formatCurrency(filteredClientFinanceData.reduce((sum, item) => sum + item.due, 0))}
+                      </TableCell>
+                      <TableCell></TableCell>
+                    </TableRow>
                   </TableBody>
                 </Table>
               )}
@@ -2027,7 +2607,69 @@ export default function FinancePage() {
               <CardTitle>{t.ledger}</CardTitle>
             </CardHeader>
             <CardContent>
-              {transactionsData.length === 0 && clientPaymentsData.length === 0 && payrollPaymentsData.length === 0 ? (
+              <div className="flex flex-wrap gap-2 mb-4">
+                <Select value={ledgerTypeFilter} onValueChange={setLedgerTypeFilter}>
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue placeholder={t.type} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t.type}</SelectItem>
+                    <SelectItem value="income">{t.income}</SelectItem>
+                    <SelectItem value="expense">{t.expense}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={ledgerCategoryFilter} onValueChange={setLedgerCategoryFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder={t.category} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t.category}</SelectItem>
+                    {ledgerCategoryOptions.map(cat => (
+                      <SelectItem key={cat.value} value={cat.value}>
+                        {cat.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={ledgerClientFilter} onValueChange={setLedgerClientFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder={t.linkedClient} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                    {clients.map(client => (
+                      <SelectItem key={client.id} value={client.id}>
+                        {client.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={ledgerEmployeeFilter} onValueChange={setLedgerEmployeeFilter}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder={t.employee} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                    {employees.map(emp => (
+                      <SelectItem key={emp.id} value={emp.id}>
+                        {language === "ar" ? emp.name : emp.nameEn || emp.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={ledgerCurrencyFilter} onValueChange={setLedgerCurrencyFilter}>
+                  <SelectTrigger className="w-[120px]">
+                    <SelectValue placeholder="Currency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
+                    {CURRENCIES.map(curr => (
+                      <SelectItem key={curr} value={curr}>{CURRENCY_SYMBOLS[curr]} {curr}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {filteredLedger.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">{t.noTransactions}</div>
               ) : (
                 <Table>
@@ -2043,8 +2685,7 @@ export default function FinancePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {/* All transactions (including those from client/payroll payments) */}
-                    {transactionsData.map(tx => (
+                    {filteredLedger.map(tx => (
                       <TableRow key={tx.id} data-testid={`row-ledger-${tx.id}`}>
                         <TableCell>
                           <Badge variant={tx.type === "income" ? "default" : "destructive"}>
@@ -2053,31 +2694,37 @@ export default function FinancePage() {
                         </TableCell>
                         <TableCell>{tx.category ? getCategoryLabel(tx.category) : "-"}</TableCell>
                         <TableCell>
-                          {getLinkedEntityName(tx)}
+                          {tx.linkedEntity}
                         </TableCell>
                         <TableCell>
                           <Badge variant="outline">{formatCurrency(tx.amount, tx.currency as Currency)}</Badge>
                         </TableCell>
                         <TableCell className={`font-medium ${tx.type === "income" ? "text-green-600" : "text-red-600"}`}>
-                          {tx.type === "income" ? "+" : "-"}{formatCurrency(convertAmount(tx.amount, tx.currency as Currency, displayCurrency))}
+                          {tx.type === "income" ? "+" : "-"}{formatCurrency(tx.convertedAmount)}
                         </TableCell>
                         <TableCell>{tx.date}</TableCell>
                         <TableCell>
                           <div className="flex gap-1">
+                            {(() => {
+                              const directTransaction = transactionsById.get(tx.recordId);
+                              const clientPayment = clientPaymentsById.get(tx.recordId);
+                              const payrollPayment = payrollPaymentsById.get(tx.recordId);
+                              return (
+                                <>
                             <Button
                               size="icon"
                               variant="ghost"
                               onClick={() => {
-                                const clientPayment = findClientPaymentForTransaction(tx);
-                                const payrollPayment = findPayrollPaymentForTransaction(tx);
-                                if (clientPayment) {
+                                if (tx.source === "client_payment" && clientPayment) {
                                   openClientPaymentEdit(clientPayment);
-                                } else if (payrollPayment) {
+                                } else if (tx.source === "payroll_payment" && payrollPayment) {
                                   openPayrollPaymentEdit(payrollPayment);
-                                } else {
-                                  openTransactionEdit(tx);
+                                } else if (directTransaction) {
+                                  openTransactionEdit(directTransaction);
                                 }
                               }}
+                              disabled={!tx.canEdit || (tx.source === "client_payment" ? !clientPayment : tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
+                              title={tx.lockedReason || undefined}
                               data-testid={`button-edit-ledger-${tx.id}`}
                             >
                               <Pencil className="h-4 w-4" />
@@ -2086,26 +2733,37 @@ export default function FinancePage() {
                               size="icon"
                               variant="ghost"
                               onClick={() => {
-                                const clientPayment = findClientPaymentForTransaction(tx);
-                                const payrollPayment = findPayrollPaymentForTransaction(tx);
                                 confirmDelete(() => {
-                                  if (clientPayment) {
+                                  if (tx.source === "client_payment" && clientPayment) {
                                     deleteClientPaymentMutation.mutate(clientPayment.id);
-                                  } else if (payrollPayment) {
+                                  } else if (tx.source === "payroll_payment" && payrollPayment) {
                                     deletePayrollPaymentMutation.mutate(payrollPayment.id);
-                                  } else {
-                                    deleteTransactionMutation.mutate(tx.id);
+                                  } else if (directTransaction) {
+                                    deleteTransactionMutation.mutate(directTransaction.id);
                                   }
                                 });
                               }}
+                              disabled={!tx.canDelete || (tx.source === "client_payment" ? !clientPayment : tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
+                              title={tx.lockedReason || undefined}
                               data-testid={`button-delete-ledger-${tx.id}`}
                             >
                               <Trash2 className="h-4 w-4 text-red-500" />
                             </Button>
+                                </>
+                              );
+                            })()}
                           </div>
                         </TableCell>
                       </TableRow>
                     ))}
+                    <TableRow className="bg-muted/50 font-medium">
+                      <TableCell colSpan={3} className="text-right">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
+                      <TableCell colSpan={1}></TableCell>
+                      <TableCell className={filteredLedger.reduce((sum, tx) => sum + (tx.type === "income" ? tx.convertedAmount : -tx.convertedAmount), 0) >= 0 ? "text-green-600" : "text-red-600"}>
+                        {formatCurrency(filteredLedger.reduce((sum, tx) => sum + (tx.type === "income" ? tx.convertedAmount : -tx.convertedAmount), 0))}
+                      </TableCell>
+                      <TableCell colSpan={2}></TableCell>
+                    </TableRow>
                   </TableBody>
                 </Table>
               )}
@@ -2284,43 +2942,62 @@ export default function FinancePage() {
           <DialogHeader>
             <DialogTitle>{editingClientPayment ? t.editIncome : t.addIncome}</DialogTitle>
             <DialogDescription>
-              {language === "ar" ? "سجل إيراد جديد من عميل" : "Record a new income from a client"}
+              {language === "ar" ? "سجل إيراد جديد" : "Record a new income"}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>{t.client}</Label>
-              <Select value={incomeForm.clientId} onValueChange={v => setIncomeForm({ ...incomeForm, clientId: v, serviceId: "" })}>
-                <SelectTrigger data-testid="select-income-client">
-                  <SelectValue placeholder={t.client} />
+              <Label>{t.incomeType}</Label>
+              <Select 
+                value={incomeForm.incomeType} 
+                onValueChange={(v: "client_payment" | "external") => setIncomeForm({ ...incomeForm, incomeType: v })}
+              >
+                <SelectTrigger data-testid="select-income-type">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {clients.map(client => (
-                    <SelectItem key={client.id} value={client.id}>
-                      {client.name}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="client_payment">{t.clientPayment}</SelectItem>
+                  <SelectItem value="external">{t.externalIncome}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label>{t.service}</Label>
-              <Select value={incomeForm.serviceId} onValueChange={v => setIncomeForm({ ...incomeForm, serviceId: v })}>
-                <SelectTrigger
-                  data-testid="select-income-service"
-                  disabled={!incomeForm.clientId || incomeClientServices.length === 0}
-                >
-                  <SelectValue placeholder={t.selectService} />
-                </SelectTrigger>
-                <SelectContent>
-                  {incomeClientServices.map(service => (
-                    <SelectItem key={service.id} value={service.id}>
-                      {language === "ar" ? service.serviceName : service.serviceNameEn || service.serviceName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {incomeForm.incomeType === "client_payment" && (
+              <>
+                <div className="space-y-2">
+                  <Label>{t.client}</Label>
+                  <Select value={incomeForm.clientId} onValueChange={v => setIncomeForm({ ...incomeForm, clientId: v, serviceId: "" })}>
+                    <SelectTrigger data-testid="select-income-client">
+                      <SelectValue placeholder={t.client} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map(client => (
+                        <SelectItem key={client.id} value={client.id}>
+                          {client.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>{t.service}</Label>
+                  <Select value={incomeForm.serviceId} onValueChange={v => setIncomeForm({ ...incomeForm, serviceId: v })}>
+                    <SelectTrigger
+                      data-testid="select-income-service"
+                      disabled={!incomeForm.clientId || incomeClientServices.length === 0}
+                    >
+                      <SelectValue placeholder={t.selectService} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {incomeClientServices.map(service => (
+                        <SelectItem key={service.id} value={service.id}>
+                          {language === "ar" ? service.serviceName : service.serviceNameEn || service.serviceName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>{t.amount}</Label>
@@ -2368,7 +3045,7 @@ export default function FinancePage() {
             <Button variant="outline" onClick={() => setIncomeModalOpen(false)}>{t.cancel}</Button>
             <Button 
               onClick={handleIncomeSubmit} 
-              disabled={createClientPaymentMutation.isPending || updateClientPaymentMutation.isPending}
+              disabled={createClientPaymentMutation.isPending || updateClientPaymentMutation.isPending || createTransactionMutation.isPending}
               data-testid="button-save-income"
             >
               {t.save}

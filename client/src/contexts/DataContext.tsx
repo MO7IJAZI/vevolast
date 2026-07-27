@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "../lib/queryClient";
 import { useCurrency, type Currency } from "./CurrencyContext";
 import { useAuth } from "./AuthContext";
+import type { ClientPayment, PayrollPayment } from "@shared/schema";
 
 // ============ TYPE DEFINITIONS ============
 
@@ -10,7 +11,7 @@ import { useAuth } from "./AuthContext";
 export type LeadStage = "new" | "contacted" | "proposal_sent" | "negotiation" | "won" | "lost";
 
 // Service Status
-export type ServiceStatus = "not_started" | "in_progress" | "completed" | "on_hold" | "delayed";
+export type ServiceStatus = "not_started" | "in_progress" | "completed" | "on_hold" | "delayed" | "cancelled";
 
 // Invoice Status
 export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue";
@@ -405,12 +406,12 @@ interface DataContextType {
 
   // Employees
   employees: Employee[];
-  addEmployee: (employee: Omit<Employee, "id">) => Employee;
+  addEmployee: (employee: Omit<Employee, "id">) => void;
   updateEmployee: (id: string, updates: Partial<Employee>) => void;
   deleteEmployee: (id: string) => void;
   reassignAndDeleteEmployee: (id: string, options: { reassignTo?: string; force?: boolean }) => Promise<void>;
 
-  // Calendar
+  // Calendar events
   events: CalendarEvent[];
   addEvent: (event: Omit<CalendarEvent, "id">) => CalendarEvent;
   updateEvent: (id: string, updates: Partial<CalendarEvent>) => void;
@@ -429,6 +430,13 @@ interface DataContextType {
   getTotalIncome: (month?: number, year?: number) => number;
   getTotalExpenses: (month?: number, year?: number) => number;
   getNetProfit: (month?: number, year?: number) => number;
+  getTotalClientPayments: (month?: number, year?: number) => number;
+  getTotalPayroll: (month?: number, year?: number) => number;
+  getTotalIncomeIncludingPayments: (month?: number, year?: number) => number;
+  getTotalExpensesIncludingPayroll: (month?: number, year?: number) => number;
+  getNetProfitAccurate: (month?: number, year?: number) => number;
+  getOverdueAmount: () => number;
+  getExpectedRevenue: () => number;
   getOverdueInvoices: () => Invoice[];
   getUpcomingInvoices: (days: number) => Invoice[];
   getGoalCompletionRate: (month?: number, year?: number) => number;
@@ -1490,6 +1498,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
     enabled: canFinance,
   });
 
+  const { data: clientPaymentsData } = useQuery<ClientPayment[]>({
+    queryKey: ["/api/client-payments"],
+    enabled: canFinance,
+  });
+
+  const { data: payrollPaymentsData } = useQuery<PayrollPayment[]>({
+    queryKey: ["/api/payroll-payments"],
+    enabled: canFinance,
+  });
+
   const { data: employeesData } = useQuery<Employee[]>({
     queryKey: ["/api/employees"],
   });
@@ -1683,6 +1701,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const employees = Array.isArray(employeesData) ? employeesData : [];
   const events = Array.isArray(eventsData) ? eventsData : [];
   const goals = Array.isArray(goalsData) ? goalsData : [];
+  const clientPayments = Array.isArray(clientPaymentsData) ? clientPaymentsData : [];
+  const payrollPayments = Array.isArray(payrollPaymentsData) ? payrollPaymentsData : [];
 
   // Local state for other entities (not yet connected to API)
   const [packages, setPackages] = useState<PackageItem[]>([]);
@@ -2368,7 +2388,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [clients]);
 
   const getTotalIncome = useCallback((month?: number, year?: number) => {
-    let filtered = transactions.filter((t) => t.type === "income");
+    let filtered = transactions.filter((t) => t.type === "income" && t.relatedType !== "client_payment");
     if (month !== undefined && year !== undefined) {
       filtered = filtered.filter((t) => {
         const parts = t.date.split("-");
@@ -2377,11 +2397,21 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return txMonth === month && txYear === year;
       });
     }
-    return filtered.reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
-  }, [transactions, convertAmount, displayCurrency]);
+    const transactionsSum = filtered.reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
+
+    let paymentsSum = 0;
+    for (const p of clientPayments) {
+      if (month !== undefined && year !== undefined) {
+        if (p.month !== month || p.year !== year) continue;
+      }
+      paymentsSum += convertAmount(p.amount, p.currency as Currency, displayCurrency);
+    }
+
+    return transactionsSum + paymentsSum;
+  }, [transactions, clientPayments, convertAmount, displayCurrency]);
 
   const getTotalExpenses = useCallback((month?: number, year?: number) => {
-    let filtered = transactions.filter((t) => t.type === "expense");
+    let filtered = transactions.filter((t) => t.type === "expense" && t.relatedType !== "payroll_payment");
     if (month !== undefined && year !== undefined) {
       filtered = filtered.filter((t) => {
         const parts = t.date.split("-");
@@ -2390,12 +2420,81 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return txMonth === month && txYear === year;
       });
     }
-    return filtered.reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
-  }, [transactions, convertAmount, displayCurrency]);
+    const transactionsSum = filtered.reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
+
+    let paymentsSum = 0;
+    for (const p of payrollPayments) {
+      if (month !== undefined && year !== undefined) {
+        const pYear = parseInt(p.period.split("-")[0]);
+        const pMonth = parseInt(p.period.split("-")[1]);
+        if (pYear !== year || pMonth !== month) continue;
+      }
+      paymentsSum += convertAmount(p.amount, p.currency as Currency, displayCurrency);
+    }
+
+    return transactionsSum + paymentsSum;
+  }, [transactions, payrollPayments, convertAmount, displayCurrency]);
 
   const getNetProfit = useCallback((month?: number, year?: number) => {
     return getTotalIncome(month, year) - getTotalExpenses(month, year);
   }, [getTotalIncome, getTotalExpenses]);
+
+  const getTotalClientPayments = useCallback((month?: number, year?: number) => {
+    let filtered = clientPayments;
+    if (month !== undefined && year !== undefined) {
+      filtered = clientPayments.filter((p) => p.month === month && p.year === year);
+    }
+    return filtered.reduce((sum, p) => sum + convertAmount(p.amount, p.currency as Currency, displayCurrency), 0);
+  }, [clientPayments, convertAmount, displayCurrency]);
+
+  const getTotalPayroll = useCallback((month?: number, year?: number) => {
+    let filtered = payrollPayments;
+    if (month !== undefined && year !== undefined) {
+      filtered = payrollPayments.filter((p) => {
+        const pYear = parseInt(p.period.split("-")[0]);
+        const pMonth = parseInt(p.period.split("-")[1]);
+        return pYear === year && pMonth === month;
+      });
+    }
+    return filtered.reduce((sum, p) => sum + convertAmount(p.amount, p.currency as Currency, displayCurrency), 0);
+  }, [payrollPayments, convertAmount, displayCurrency]);
+
+  const getTotalIncomeIncludingPayments = useCallback((month?: number, year?: number) => {
+    return getTotalIncome(month, year);
+  }, [getTotalIncome]);
+
+  const getTotalExpensesIncludingPayroll = useCallback((month?: number, year?: number) => {
+    return getTotalExpenses(month, year);
+  }, [getTotalExpenses]);
+
+  const getNetProfitAccurate = useCallback((month?: number, year?: number) => {
+    return getTotalIncomeIncludingPayments(month, year) - getTotalExpensesIncludingPayroll(month, year);
+  }, [getTotalIncomeIncludingPayments, getTotalExpensesIncludingPayroll]);
+
+  const getOverdueAmount = useCallback(() => {
+    return invoices
+      .filter((i) => i.status === "overdue")
+      .reduce((sum, i) => sum + convertAmount(i.amount, i.currency, displayCurrency), 0);
+  }, [invoices, convertAmount, displayCurrency]);
+
+  const getExpectedRevenue = useCallback(() => {
+    let revenue = 0;
+    for (const client of clients) {
+      for (const service of client.services) {
+        if (!service.price || service.status === "cancelled") continue;
+        const servicePrice = convertAmount(service.price, service.currency || "USD", displayCurrency);
+        const servicePayments = clientPayments.filter((p) => p.serviceId === service.id);
+        let totalPaid = 0;
+        for (const p of servicePayments) {
+          totalPaid += convertAmount(p.amount, p.currency as Currency, displayCurrency);
+        }
+        if (totalPaid < servicePrice - 1) {
+          revenue += servicePrice - totalPaid;
+        }
+      }
+    }
+    return revenue;
+  }, [clients, clientPayments, convertAmount, displayCurrency]);
 
   const getOverdueInvoices = useCallback(() => {
     return invoices.filter((i) => i.status === "overdue");
@@ -2515,10 +2614,17 @@ export function DataProvider({ children }: { children: ReactNode }) {
     getActiveClients,
     getClientsWithExpiringServices,
     getServicesCompletedThisMonth,
-    getTotalIncome,
-    getTotalExpenses,
-    getNetProfit,
-    getOverdueInvoices,
+getTotalIncome,
+     getTotalExpenses,
+     getNetProfit,
+     getTotalClientPayments,
+     getTotalPayroll,
+     getTotalIncomeIncludingPayments,
+     getTotalExpensesIncludingPayroll,
+     getNetProfitAccurate,
+     getOverdueAmount,
+     getExpectedRevenue,
+     getOverdueInvoices,
     getUpcomingInvoices,
     getGoalCompletionRate,
     getTodayEvents,

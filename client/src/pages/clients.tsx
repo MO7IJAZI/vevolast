@@ -169,6 +169,13 @@ const serviceStatuses: Record<ServiceStatus, ServiceStatusInfo> = {
     bgColor: "bg-red-100 dark:bg-red-900/30",
     icon: AlertTriangle,
   },
+  cancelled: {
+    labelAr: "ملغي",
+    labelEn: "Cancelled",
+    color: "text-slate-700 dark:text-slate-300",
+    bgColor: "bg-slate-100 dark:bg-slate-900/30",
+    icon: Circle,
+  },
 };
 
 // Service Types

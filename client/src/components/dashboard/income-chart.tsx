@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -12,84 +13,50 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCurrency } from "@/contexts/CurrencyContext";
-import { useData } from "@/contexts/DataContext";
 import { cn } from "@/lib/utils";
-import { format, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek, subWeeks, isSameMonth, isSameWeek, parseISO } from "date-fns";
-import { arSA, enUS } from "date-fns/locale";
 
 type Period = "weekly" | "monthly";
 
-export function IncomeChart() {
+interface IncomeChartProps {
+  filterMonth?: number;
+  filterYear?: number;
+}
+
+export function IncomeChart({ filterMonth, filterYear }: IncomeChartProps) {
   const { language, direction } = useLanguage();
-  const { formatCurrency, convertAmount, currency: displayCurrency } = useCurrency();
-  const { transactions } = useData();
+  const { formatCurrency, currency: displayCurrency } = useCurrency();
   const [period, setPeriod] = useState<Period>("monthly");
 
-  const data = useMemo(() => {
-    const now = new Date();
-    
-    if (period === "monthly") {
-      // Last 6 months
-      const result = [];
-      for (let i = 5; i >= 0; i--) {
-        const date = subMonths(now, i);
-        const monthStart = startOfMonth(date);
-        const monthEnd = endOfMonth(date);
-        
-        const monthTransactions = transactions.filter(t => {
-          const parts = t.date.split("-");
-          const tDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-          return tDate >= monthStart && tDate <= monthEnd;
-        });
+  const { data: trendDataRaw = [] } = useQuery<Array<{
+    key: string;
+    label: string;
+    labelAr: string;
+    income: number;
+    expenses: number;
+  }>>({
+    queryKey: ["/api/finance-trend", { month: filterMonth, year: filterYear, displayCurrency, groupBy: period }],
+    queryFn: async () => {
+      let url = "/api/finance-trend";
+      const params = new URLSearchParams();
+      if (filterMonth !== undefined) params.set("month", String(filterMonth));
+      if (filterYear !== undefined) params.set("year", String(filterYear));
+      params.set("displayCurrency", displayCurrency);
+      params.set("groupBy", period);
+      url += "?" + params.toString();
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch finance trend");
+      return res.json();
+    },
+  });
 
-        const income = monthTransactions
-          .filter(t => t.type === "income")
-          .reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
-          
-        const expenses = monthTransactions
-          .filter(t => t.type === "expense")
-          .reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
-
-        result.push({
-          month: format(date, "MMM", { locale: enUS }),
-          monthAr: format(date, "MMM", { locale: arSA }),
-          income,
-          expenses
-        });
-      }
-      return result;
-    } else {
-      // Last 4 weeks
-      const result = [];
-      for (let i = 3; i >= 0; i--) {
-        const date = subWeeks(now, i);
-        const weekStart = startOfWeek(date, { weekStartsOn: 1 }); // Monday start
-        const weekEnd = endOfWeek(date, { weekStartsOn: 1 });
-        
-        const weekTransactions = transactions.filter(t => {
-          const parts = t.date.split("-");
-          const tDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-          return tDate >= weekStart && tDate <= weekEnd;
-        });
-
-        const income = weekTransactions
-          .filter(t => t.type === "income")
-          .reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
-          
-        const expenses = weekTransactions
-          .filter(t => t.type === "expense")
-          .reduce((sum, t) => sum + convertAmount(t.amount, t.currency, displayCurrency), 0);
-
-        result.push({
-          month: `Week ${4-i}`,
-          monthAr: `الأسبوع ${4-i}`,
-          income,
-          expenses
-        });
-      }
-      return result;
-    }
-  }, [period, transactions, convertAmount, displayCurrency]);
+  const data = Array.isArray(trendDataRaw)
+    ? trendDataRaw.map((point) => ({
+        month: point.label,
+        monthAr: point.labelAr,
+        income: point.income,
+        expenses: point.expenses,
+      }))
+    : [];
 
   const periods: { value: Period; labelEn: string; labelAr: string }[] = [
     { value: "weekly", labelEn: "Weekly", labelAr: "أسبوعي" },

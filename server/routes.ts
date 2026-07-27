@@ -33,6 +33,16 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  const respondWithFinanceError = (res: any, error: unknown, fallbackMessage: string) => {
+    const status = typeof (error as any)?.status === "number" ? Number((error as any).status) : 500;
+    const message = error instanceof Error ? error.message : fallbackMessage;
+    if (status >= 400 && status < 500) {
+      return res.status(status).json({ error: message });
+    }
+    console.error(fallbackMessage, error);
+    return res.status(500).json({ error: fallbackMessage });
+  };
+
   // Health check
   app.get("/api/health", (_req, res) => {
     res.json({ status: "ok", time: new Date().toISOString() });
@@ -811,8 +821,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid transaction data", details: error.errors });
       }
-      console.error("Error creating transaction:", error);
-      res.status(500).json({ error: "Failed to create transaction" });
+      return respondWithFinanceError(res, error, "Failed to create transaction");
     }
   });
 
@@ -829,8 +838,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid transaction data", details: error.errors });
       }
-      console.error("Error updating transaction:", error);
-      res.status(500).json({ error: "Failed to update transaction" });
+      return respondWithFinanceError(res, error, "Failed to update transaction");
     }
   });
 
@@ -843,8 +851,7 @@ export async function registerRoutes(
       }
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting transaction:", error);
-      res.status(500).json({ error: "Failed to delete transaction" });
+      return respondWithFinanceError(res, error, "Failed to delete transaction");
     }
   });
 
@@ -1033,6 +1040,67 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching finance summary:", error);
       res.status(500).json({ error: "Failed to fetch finance summary" });
+    }
+  });
+
+  app.get("/api/finance-ledger", requirePermission("finance", "view_reports"), async (req, res) => {
+    try {
+      const { month, year, displayCurrency } = req.query;
+      const ledger = await storage.getFinanceLedger({
+        month: month ? Number(month) : undefined,
+        year: year ? Number(year) : undefined,
+        displayCurrency: (displayCurrency as string) || "USD",
+      });
+      res.json(ledger);
+    } catch (error) {
+      console.error("Error fetching finance ledger:", error);
+      res.status(500).json({ error: "Failed to fetch finance ledger" });
+    }
+  });
+
+  app.get("/api/finance-payroll-report", requirePermission("finance", "view_reports"), async (req, res) => {
+    try {
+      const { month, year, displayCurrency } = req.query;
+      const report = await storage.getFinancePayrollReport({
+        month: month ? Number(month) : undefined,
+        year: year ? Number(year) : undefined,
+        displayCurrency: (displayCurrency as string) || "USD",
+      });
+      res.json(report);
+    } catch (error) {
+      console.error("Error fetching finance payroll report:", error);
+      res.status(500).json({ error: "Failed to fetch finance payroll report" });
+    }
+  });
+
+  app.get("/api/finance-client-report", requirePermission("finance", "view_reports"), async (req, res) => {
+    try {
+      const { month, year, displayCurrency } = req.query;
+      const report = await storage.getFinanceClientReport({
+        month: month ? Number(month) : undefined,
+        year: year ? Number(year) : undefined,
+        displayCurrency: (displayCurrency as string) || "USD",
+      });
+      res.json(report);
+    } catch (error) {
+      console.error("Error fetching finance client report:", error);
+      res.status(500).json({ error: "Failed to fetch finance client report" });
+    }
+  });
+
+  app.get("/api/finance-trend", requirePermission("finance", "view_reports"), async (req, res) => {
+    try {
+      const { month, year, displayCurrency, groupBy } = req.query;
+      const trend = await storage.getFinanceTrend({
+        month: month ? Number(month) : undefined,
+        year: year ? Number(year) : undefined,
+        displayCurrency: (displayCurrency as string) || "USD",
+        groupBy: groupBy === "weekly" ? "weekly" : "monthly",
+      });
+      res.json(trend);
+    } catch (error) {
+      console.error("Error fetching finance trend:", error);
+      res.status(500).json({ error: "Failed to fetch finance trend" });
     }
   });
 

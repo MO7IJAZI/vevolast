@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   Wallet,
@@ -8,6 +9,8 @@ import {
   Target,
   Calendar,
   ArrowRight,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCurrency } from "@/contexts/CurrencyContext";
@@ -40,9 +43,6 @@ export default function Dashboard() {
   const { t, language } = useLanguage();
   const { formatCurrency, convertAmount, currency: displayCurrency } = useCurrency();
   const {
-    getTotalIncome,
-    getTotalExpenses,
-    getNetProfit,
     goals,
     getGoalCompletionRate,
     getTodayEvents,
@@ -55,20 +55,61 @@ export default function Dashboard() {
   const currentYear = now.getFullYear();
 
   const [filterPeriod, setFilterPeriod] = useState("all");
+  const [selectedMonth, setSelectedMonth] = useState<number>(currentMonth);
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
+
+  const goToPrevMonth = () => {
+    setSelectedMonth(prev => {
+      if (prev === 1) {
+        setSelectedYear(y => y - 1);
+        return 12;
+      }
+      return prev - 1;
+    });
+  };
+
+  const goToNextMonth = () => {
+    setSelectedMonth(prev => {
+      if (prev === 12) {
+        setSelectedYear(y => y + 1);
+        return 1;
+      }
+      return prev + 1;
+    });
+  };
 
   let filterMonth: number | undefined;
   let filterYear: number | undefined;
-  if (filterPeriod === "current-month") {
-    filterMonth = currentMonth;
-    filterYear = currentYear;
-  } else if (filterPeriod === "current-year") {
-    filterYear = currentYear;
+  if (filterPeriod === "specific-month") {
+    filterMonth = selectedMonth;
+    filterYear = selectedYear;
   }
   // "all" keeps both undefined => all time
 
-  const totalIncome = getTotalIncome(filterMonth, filterYear);
-  const totalExpenses = getTotalExpenses(filterMonth, filterYear);
-  const netProfit = getNetProfit(filterMonth, filterYear);
+  const canViewFinance = isAdmin || hasResourcePermission("finance");
+  const { data: financeSummary } = useQuery<{
+    totalIncome: number;
+    totalExpenses: number;
+    netProfit: number;
+  }>({
+    queryKey: ["/api/finance-summary", { month: filterMonth, year: filterYear, displayCurrency }],
+    queryFn: async () => {
+      let url = "/api/finance-summary";
+      const params = new URLSearchParams();
+      if (filterMonth !== undefined) params.set("month", String(filterMonth));
+      if (filterYear !== undefined) params.set("year", String(filterYear));
+      params.set("displayCurrency", displayCurrency);
+      url += "?" + params.toString();
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch finance summary");
+      return res.json();
+    },
+    enabled: canViewFinance,
+  });
+
+  const totalIncome = financeSummary?.totalIncome ?? 0;
+  const totalExpenses = financeSummary?.totalExpenses ?? 0;
+  const netProfit = financeSummary?.netProfit ?? 0;
   const balance = totalIncome - totalExpenses;
 
   const currentMonthGoals = goals.filter(
@@ -140,12 +181,10 @@ export default function Dashboard() {
           <p className="text-muted-foreground">
             {filterPeriod === "all"
               ? (language === "ar" ? "جميع الفترات" : "All Time")
-              : filterPeriod === "current-year"
-              ? currentYear.toString()
-              : `${t("month." + currentMonth)} ${currentYear}`}
+              : `${t("month." + selectedMonth)} ${selectedYear}`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Select value={filterPeriod} onValueChange={setFilterPeriod}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder={language === "ar" ? "اختر الفترة" : "Select period"} />
@@ -154,18 +193,49 @@ export default function Dashboard() {
               <SelectItem value="all">
                 {language === "ar" ? "كل الأوقات" : "All Time"}
               </SelectItem>
-              <SelectItem value="current-month">
-                {language === "ar" ? "هذا الشهر" : "This Month"}
-              </SelectItem>
-              <SelectItem value="current-year">
-                {language === "ar" ? "هذه السنة" : "This Year"}
+              <SelectItem value="specific-month">
+                {language === "ar" ? "شهر محدد" : "Specific Month"}
               </SelectItem>
             </SelectContent>
           </Select>
+          {filterPeriod === "specific-month" && (
+            <div className="flex items-center gap-2">
+              <Select value={selectedMonth.toString()} onValueChange={(v) => setSelectedMonth(parseInt(v))}>
+                <SelectTrigger className="w-[130px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                    <SelectItem key={m} value={m.toString()}>
+                      {t(`month.${m}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={selectedYear.toString()} onValueChange={(v) => setSelectedYear(parseInt(v))}>
+                <SelectTrigger className="w-[100px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 11 }, (_, i) => currentYear - 5 + i).map((y) => (
+                    <SelectItem key={y} value={y.toString()}>
+                      {y}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" size="icon" onClick={goToPrevMonth} className="h-9 w-9">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Button variant="outline" size="icon" onClick={goToNextMonth} className="h-9 w-9">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
-      {(isAdmin || hasResourcePermission("finance")) && (
+      {canViewFinance && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Link href="/finance">
             <KPICard
@@ -214,10 +284,10 @@ export default function Dashboard() {
         </div>
       )}
 
-      {(isAdmin || hasResourcePermission("finance")) && (
+      {canViewFinance && (
         <div className="grid lg:grid-cols-3 gap-6">
-          <IncomeChart />
-          <RevenueChart />
+          <IncomeChart filterMonth={filterMonth} filterYear={filterYear} />
+          <RevenueChart filterMonth={filterMonth} filterYear={filterYear} />
         </div>
       )}
 

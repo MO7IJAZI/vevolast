@@ -30,7 +30,7 @@ export function KPICard({
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-2 flex-1 min-w-0">
             <p className="text-sm text-muted-foreground font-medium">{title}</p>
-            <p className="text-2xl font-bold tracking-tight" data-testid={`value-${title.toLowerCase().replace(/\s+/g, '-')}`}>{value}</p>
+             <p className="text-3xl font-bold tracking-tight" data-testid={`value-${title.toLowerCase().replace(/\s+/g, '-')}`}>{value}</p>
             {trend !== undefined && (
               <div className="flex items-center gap-1.5">
                 {isPositive && (

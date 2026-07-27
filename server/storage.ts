@@ -48,6 +48,81 @@ interface FinanceSummaryParams {
   displayCurrency: string;
 }
 
+interface FinanceLedgerParams {
+  month?: number;
+  year?: number;
+  displayCurrency: string;
+}
+
+interface FinanceTrendParams extends FinanceLedgerParams {
+  groupBy?: "monthly" | "weekly";
+}
+
+interface FinanceBreakdownItem {
+  key: string;
+  label: string;
+  labelAr: string;
+  amount: number;
+}
+
+interface FinanceLedgerEntry {
+  id: string;
+  recordId: string;
+  source: "transaction" | "client_payment" | "payroll_payment" | "service_completion";
+  type: "income" | "expense";
+  category: string;
+  description: string;
+  amount: number;
+  currency: string;
+  convertedAmount: number;
+  date: string;
+  relatedId: string | null;
+  relatedType: string | null;
+  status: string;
+  notes: string | null;
+  clientId: string | null;
+  serviceId: string | null;
+  employeeId: string | null;
+  isSystemManaged: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  lockedReason: string | null;
+  displayCurrency: string;
+}
+
+interface FinanceTrendPoint {
+  key: string;
+  label: string;
+  labelAr: string;
+  income: number;
+  expenses: number;
+  netProfit: number;
+}
+
+interface FinancePayrollReportItem {
+  employeeId: string;
+  payType: string;
+  salaryCurrency: string;
+  monthlyAmount: number;
+  rateAmount: number;
+  rateUnitsCount: number;
+  paidThisPeriod: number;
+  remaining: number;
+  expectedSalary: number;
+  payments: PayrollPayment[];
+}
+
+interface FinanceClientReportItem {
+  clientId: string;
+  expectedMonthly: number;
+  expectedOneTime: number;
+  paidThisPeriod: number;
+  oneTimePaidThisPeriod: number;
+  due: number;
+  isOverdue: boolean;
+  payments: ClientPayment[];
+}
+
 interface CalendarEventFilters {
   startDate?: string;
   endDate?: string;
@@ -70,6 +145,16 @@ interface WorkSessionFilters {
   startDate?: string;
   endDate?: string;
   status?: string;
+}
+
+class FinanceMutationError extends Error {
+  status: number;
+
+  constructor(message: string, status = 400) {
+    super(message);
+    this.name = "FinanceMutationError";
+    this.status = status;
+  }
 }
 
 export interface IStorage {
@@ -107,6 +192,9 @@ export interface IStorage {
   getEmployeeSalary(employeeId: string): Promise<EmployeeSalary | null>;
   upsertEmployeeSalary(employeeId: string, data: Partial<InsertEmployeeSalary>): Promise<EmployeeSalary>;
   
+  getFinanceLedger(params: FinanceLedgerParams): Promise<FinanceLedgerEntry[]>;
+  getFinancePayrollReport(params: FinanceLedgerParams): Promise<FinancePayrollReportItem[]>;
+  getFinanceClientReport(params: FinanceLedgerParams): Promise<FinanceClientReportItem[]>;
   getFinanceSummary(params: FinanceSummaryParams): Promise<{
     totalIncome: number;
     totalExpenses: number;
@@ -115,8 +203,10 @@ export interface IStorage {
     payrollRemaining: number;
     expectedRevenue: number;
     servicesBreakdown: { packageName: string; packageNameAr: string; revenue: number }[];
+    expenseBreakdown: FinanceBreakdownItem[];
     displayCurrency: string;
   }>;
+  getFinanceTrend(params: FinanceTrendParams): Promise<FinanceTrendPoint[]>;
 
   // Calendar Events
   getCalendarEvents(filters: CalendarEventFilters): Promise<CalendarEvent[]>;
@@ -195,6 +285,290 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private isMirroredFinanceTransaction(relatedType?: string | null): boolean {
+    return relatedType === "client_payment" || relatedType === "payroll_payment";
+  }
+
+  private isSystemManagedFinanceTransaction(relatedType?: string | null): boolean {
+    return this.isMirroredFinanceTransaction(relatedType) || relatedType === "client_service";
+  }
+
+  private assertAllowedManualTransaction(transaction: Partial<InsertTransaction>): void {
+    if (transaction.relatedType && this.isSystemManagedFinanceTransaction(transaction.relatedType)) {
+      throw new FinanceMutationError("This transaction is system-managed and must be changed from its source record.", 409);
+    }
+  }
+
+  private getManagedTransactionLockReason(relatedType?: string | null): string | null {
+    if (relatedType === "client_payment") {
+      return "This entry is generated from a client payment. Edit the payment instead.";
+    }
+    if (relatedType === "payroll_payment") {
+      return "This entry is generated from a payroll payment. Edit the payroll payment instead.";
+    }
+    if (relatedType === "client_service") {
+      return "This entry is generated when a service is completed and cannot be edited manually.";
+    }
+    return null;
+  }
+
+  private getClientPaymentTransactionDescription(payment: ClientPayment): string {
+    return `Client payment - ${payment.month}/${payment.year}`;
+  }
+
+  private getPayrollTransactionDescription(payment: PayrollPayment): string {
+    return `Salary payment - ${payment.period}`;
+  }
+
+  private async getTransactionOrThrow(executor: any, id: string): Promise<Transaction> {
+    const result = await executor.select().from(transactions).where(eq(transactions.id, id));
+    const existing = result[0];
+    if (!existing) {
+      throw new FinanceMutationError("Transaction not found", 404);
+    }
+    return existing;
+  }
+
+  private async assertEditableTransaction(executor: any, id: string): Promise<Transaction> {
+    const existing = await this.getTransactionOrThrow(executor, id);
+    if (this.isSystemManagedFinanceTransaction(existing.relatedType)) {
+      throw new FinanceMutationError(this.getManagedTransactionLockReason(existing.relatedType) || "This transaction is system-managed.", 409);
+    }
+    return existing;
+  }
+
+  private async upsertClientPaymentTransaction(executor: any, payment: ClientPayment): Promise<void> {
+    const payload = {
+      description: this.getClientPaymentTransactionDescription(payment),
+      amount: payment.amount,
+      currency: payment.currency,
+      type: "income",
+      category: "client_payment",
+      date: payment.paymentDate,
+      clientId: payment.clientId,
+      serviceId: payment.serviceId,
+      relatedId: payment.id,
+      relatedType: "client_payment",
+      status: "completed",
+      notes: payment.notes || null,
+    } satisfies InsertTransaction;
+
+    const existing = await executor
+      .select()
+      .from(transactions)
+      .where(and(eq(transactions.relatedType, "client_payment"), eq(transactions.relatedId, payment.id)));
+
+    if (existing.length > 0) {
+      await executor
+        .update(transactions)
+        .set(payload)
+        .where(and(eq(transactions.relatedType, "client_payment"), eq(transactions.relatedId, payment.id)));
+      return;
+    }
+
+    await executor.insert(transactions).values({ ...payload, id: randomUUID() });
+  }
+
+  private async upsertPayrollPaymentTransaction(executor: any, payment: PayrollPayment): Promise<void> {
+    const payload = {
+      type: "expense",
+      category: "salaries",
+      amount: payment.amount,
+      currency: payment.currency,
+      description: this.getPayrollTransactionDescription(payment),
+      date: payment.paymentDate,
+      relatedId: payment.id,
+      relatedType: "payroll_payment",
+      status: payment.status || "paid",
+      notes: payment.notes || null,
+      clientId: null,
+      serviceId: null,
+    } satisfies InsertTransaction;
+
+    const existing = await executor
+      .select()
+      .from(transactions)
+      .where(and(eq(transactions.relatedType, "payroll_payment"), eq(transactions.relatedId, payment.id)));
+
+    if (existing.length > 0) {
+      await executor
+        .update(transactions)
+        .set(payload)
+        .where(and(eq(transactions.relatedType, "payroll_payment"), eq(transactions.relatedId, payment.id)));
+      return;
+    }
+
+    await executor.insert(transactions).values({ ...payload, id: randomUUID() });
+  }
+
+  private roundFinanceAmount(value: number): number {
+    return Math.round(value * 100) / 100;
+  }
+
+  private getFinanceCategoryLabels(category: string): { label: string; labelAr: string } {
+    switch (category) {
+      case "salaries":
+        return { label: "Salaries", labelAr: "الرواتب" };
+      case "ads":
+        return { label: "Advertising", labelAr: "الإعلانات" };
+      case "tools":
+        return { label: "Tools & Software", labelAr: "الأدوات والبرمجيات" };
+      case "subscriptions":
+        return { label: "Subscriptions", labelAr: "الاشتراكات" };
+      case "refunds":
+        return { label: "Refunds", labelAr: "المبالغ المستردة" };
+      case "rent":
+        return { label: "Rent", labelAr: "الإيجار" };
+      case "utilities":
+        return { label: "Utilities", labelAr: "المرافق" };
+      case "client_payment":
+        return { label: "Client Payments", labelAr: "دفعات العملاء" };
+      case "services":
+        return { label: "Services", labelAr: "الخدمات" };
+      default:
+        return { label: "Other", labelAr: "أخرى" };
+    }
+  }
+
+  private parseFinanceDate(dateValue: string): Date {
+    const [year, month, day] = dateValue.split("-").map(Number);
+    return new Date(year, (month || 1) - 1, day || 1);
+  }
+
+  private getStartOfWeek(date: Date): Date {
+    const start = new Date(date);
+    const day = start.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    start.setDate(start.getDate() + diff);
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }
+
+  private isDateInFinancePeriod(dateValue?: string | null, month?: number, year?: number): boolean {
+    if (!dateValue) return false;
+    if (!month && !year) return true;
+    const entryDate = this.parseFinanceDate(dateValue);
+    if (year && entryDate.getFullYear() !== year) {
+      return false;
+    }
+    if (month && (entryDate.getMonth() + 1) !== month) {
+      return false;
+    }
+    return true;
+  }
+
+  private isServiceInFinancePeriod(service: ClientService, month?: number, year?: number): boolean {
+    if (!month && !year) return true;
+    const completedDate = service.completedAt
+      ? new Date(service.completedAt).toISOString().split("T")[0]
+      : null;
+    return [service.startDate, service.endDate, completedDate].some((dateValue) =>
+      this.isDateInFinancePeriod(dateValue, month, year)
+    );
+  }
+
+  private async buildFinanceLedger(params: FinanceLedgerParams): Promise<FinanceLedgerEntry[]> {
+    const { month, year, displayCurrency } = params;
+    const [allTransactions, allClientPayments, allPayrollPayments] = await Promise.all([
+      this.getTransactions({ month, year }),
+      this.getClientPayments({ month, year }),
+      this.getPayrollPayments({ month, year }),
+    ]);
+
+    const transactionEntries = await Promise.all(
+      allTransactions
+        .filter((transaction) => !this.isMirroredFinanceTransaction(transaction.relatedType))
+        .map(async (transaction) => {
+          const isServiceCompletion = transaction.relatedType === "client_service";
+          return {
+            id: `transaction:${transaction.id}`,
+            recordId: transaction.id,
+            source: isServiceCompletion ? "service_completion" : "transaction",
+            type: transaction.type === "expense" ? "expense" : "income",
+            category: transaction.category,
+            description: transaction.description,
+            amount: transaction.amount,
+            currency: transaction.currency,
+            convertedAmount: this.roundFinanceAmount(await convertCurrency(transaction.amount, transaction.currency, displayCurrency)),
+            date: transaction.date,
+            relatedId: transaction.relatedId || null,
+            relatedType: transaction.relatedType || null,
+            status: transaction.status || "completed",
+            notes: transaction.notes || null,
+            clientId: transaction.clientId || null,
+            serviceId: transaction.serviceId || null,
+            employeeId: transaction.relatedType === "salary" ? transaction.relatedId || null : null,
+            isSystemManaged: this.isSystemManagedFinanceTransaction(transaction.relatedType),
+            canEdit: !isServiceCompletion,
+            canDelete: !isServiceCompletion,
+            lockedReason: isServiceCompletion ? this.getManagedTransactionLockReason(transaction.relatedType) : null,
+            displayCurrency,
+          } satisfies FinanceLedgerEntry;
+        })
+    );
+
+    const clientPaymentEntries = await Promise.all(
+      allClientPayments.map(async (payment) => ({
+        id: `client_payment:${payment.id}`,
+        recordId: payment.id,
+        source: "client_payment",
+        type: "income",
+        category: "client_payment",
+        description: this.getClientPaymentTransactionDescription(payment),
+        amount: payment.amount,
+        currency: payment.currency,
+        convertedAmount: this.roundFinanceAmount(await convertCurrency(payment.amount, payment.currency, displayCurrency)),
+        date: payment.paymentDate,
+        relatedId: payment.id,
+        relatedType: "client_payment",
+        status: "completed",
+        notes: payment.notes || null,
+        clientId: payment.clientId,
+        serviceId: payment.serviceId || null,
+        employeeId: null,
+        isSystemManaged: true,
+        canEdit: true,
+        canDelete: true,
+        lockedReason: null,
+        displayCurrency,
+      } satisfies FinanceLedgerEntry))
+    );
+
+    const payrollEntries = await Promise.all(
+      allPayrollPayments.map(async (payment) => ({
+        id: `payroll_payment:${payment.id}`,
+        recordId: payment.id,
+        source: "payroll_payment",
+        type: "expense",
+        category: "salaries",
+        description: this.getPayrollTransactionDescription(payment),
+        amount: payment.amount,
+        currency: payment.currency,
+        convertedAmount: this.roundFinanceAmount(await convertCurrency(payment.amount, payment.currency, displayCurrency)),
+        date: payment.paymentDate,
+        relatedId: payment.id,
+        relatedType: "payroll_payment",
+        status: payment.status || "paid",
+        notes: payment.notes || null,
+        clientId: null,
+        serviceId: null,
+        employeeId: payment.employeeId,
+        isSystemManaged: true,
+        canEdit: true,
+        canDelete: true,
+        lockedReason: null,
+        displayCurrency,
+      } satisfies FinanceLedgerEntry))
+    );
+
+    return [...transactionEntries, ...clientPaymentEntries, ...payrollEntries].sort((a, b) => {
+      if (a.date === b.date) {
+        return b.id.localeCompare(a.id);
+      }
+      return b.date.localeCompare(a.date);
+    });
+  }
+
   async getUser(id: string): Promise<User | undefined> {
     const result = await db.select().from(users).where(eq(users.id, id));
     return result[0];
@@ -298,6 +672,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createTransaction(transaction: InsertTransaction): Promise<Transaction> {
+    this.assertAllowedManualTransaction(transaction);
     const id = randomUUID();
     await db.insert(transactions).values({ ...transaction, id });
     const result = await db.select().from(transactions).where(eq(transactions.id, id));
@@ -305,14 +680,21 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateTransaction(id: string, transaction: Partial<InsertTransaction>): Promise<Transaction | undefined> {
-    await db.update(transactions).set(transaction).where(eq(transactions.id, id));
-    const result = await db.select().from(transactions).where(eq(transactions.id, id));
-    return result[0];
+    this.assertAllowedManualTransaction(transaction);
+    return await db.transaction(async (tx) => {
+      await this.assertEditableTransaction(tx, id);
+      await tx.update(transactions).set(transaction).where(eq(transactions.id, id));
+      const result = await tx.select().from(transactions).where(eq(transactions.id, id));
+      return result[0];
+    });
   }
 
   async deleteTransaction(id: string): Promise<boolean> {
-    await db.delete(transactions).where(eq(transactions.id, id));
-    return true;
+    return await db.transaction(async (tx) => {
+      await this.assertEditableTransaction(tx, id);
+      await tx.delete(transactions).where(eq(transactions.id, id));
+      return true;
+    });
   }
 
   async getClientPayments(filters: PaymentFilters): Promise<ClientPayment[]> {
@@ -343,30 +725,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createClientPayment(payment: InsertClientPayment): Promise<ClientPayment> {
-    // Create the client payment
-    const paymentId = randomUUID();
-    await db.insert(clientPayments).values({ ...payment, id: paymentId });
-    const paymentResult = await db.select().from(clientPayments).where(eq(clientPayments.id, paymentId));
-    const createdPayment = paymentResult[0];
-    
-    // Also create an income transaction
-    const transactionId = randomUUID();
-    await db.insert(transactions).values({
-      id: transactionId,
-      description: `Client payment - ${payment.month}/${payment.year}`,
-      amount: payment.amount,
-      currency: payment.currency,
-      type: "income",
-      category: "client_payment", // Corrected from 'other' to match enum if needed, or use 'other'
-      date: payment.paymentDate,
-      clientId: payment.clientId,
-      serviceId: payment.serviceId,
-      relatedId: createdPayment.id,
-      relatedType: "client_payment",
-      status: "completed",
+    return await db.transaction(async (tx) => {
+      const paymentId = randomUUID();
+      await tx.insert(clientPayments).values({ ...payment, id: paymentId });
+      const paymentResult = await tx.select().from(clientPayments).where(eq(clientPayments.id, paymentId));
+      const createdPayment = paymentResult[0];
+      await this.upsertClientPaymentTransaction(tx, createdPayment);
+      return createdPayment;
     });
-    
-    return createdPayment;
   }
 
   async updateClientPayment(id: string, payment: Partial<InsertClientPayment>): Promise<ClientPayment | undefined> {
@@ -378,17 +744,7 @@ export class DatabaseStorage implements IStorage {
       await tx.update(clientPayments).set(payment).where(eq(clientPayments.id, id));
       const updated = await tx.select().from(clientPayments).where(eq(clientPayments.id, id));
       const updatedPayment = updated[0];
-
-      await tx.update(transactions)
-        .set({
-          amount: updatedPayment.amount,
-          currency: updatedPayment.currency,
-          date: updatedPayment.paymentDate,
-          clientId: updatedPayment.clientId,
-          serviceId: updatedPayment.serviceId,
-        })
-        .where(and(eq(transactions.relatedType, "client_payment"), eq(transactions.relatedId, id)));
-
+      await this.upsertClientPaymentTransaction(tx, updatedPayment);
       return updatedPayment;
     });
   }
@@ -430,27 +786,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPayrollPayment(payment: InsertPayrollPayment): Promise<PayrollPayment> {
-    // Create the payroll payment
-    const paymentId = randomUUID();
-    await db.insert(payrollPayments).values({ ...payment, id: paymentId });
-    const paymentResult = await db.select().from(payrollPayments).where(eq(payrollPayments.id, paymentId));
-    const createdPayment = paymentResult[0];
-    
-    // Also create an expense transaction
-    const transactionId = randomUUID();
-    await db.insert(transactions).values({
-      id: transactionId,
-      type: "expense",
-      category: "salaries",
-      amount: payment.amount,
-      currency: payment.currency,
-      description: "Salary payment",
-      date: payment.paymentDate,
-      relatedId: createdPayment.id,
-      relatedType: "payroll_payment",
+    return await db.transaction(async (tx) => {
+      const paymentId = randomUUID();
+      await tx.insert(payrollPayments).values({ ...payment, id: paymentId });
+      const paymentResult = await tx.select().from(payrollPayments).where(eq(payrollPayments.id, paymentId));
+      const createdPayment = paymentResult[0];
+      await this.upsertPayrollPaymentTransaction(tx, createdPayment);
+      return createdPayment;
     });
-    
-    return createdPayment;
   }
 
   async updatePayrollPayment(id: string, payment: Partial<InsertPayrollPayment>): Promise<PayrollPayment | undefined> {
@@ -459,19 +802,10 @@ export class DatabaseStorage implements IStorage {
       if (existing.length === 0) {
         return undefined;
       }
-      const previous = existing[0];
       await tx.update(payrollPayments).set(payment).where(eq(payrollPayments.id, id));
       const updated = await tx.select().from(payrollPayments).where(eq(payrollPayments.id, id));
       const updatedPayment = updated[0];
-
-      await tx.update(transactions)
-        .set({
-          amount: updatedPayment.amount,
-          currency: updatedPayment.currency,
-          date: updatedPayment.paymentDate,
-        })
-        .where(and(eq(transactions.relatedType, "payroll_payment"), eq(transactions.relatedId, id)));
-
+      await this.upsertPayrollPaymentTransaction(tx, updatedPayment);
       return updatedPayment;
     });
   }
@@ -531,6 +865,140 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  async getFinanceLedger(params: FinanceLedgerParams): Promise<FinanceLedgerEntry[]> {
+    return await this.buildFinanceLedger(params);
+  }
+
+  async getFinancePayrollReport(params: FinanceLedgerParams): Promise<FinancePayrollReportItem[]> {
+    const { month, year, displayCurrency } = params;
+    const [allEmployees, salaries, paymentsThisPeriod, allServices] = await Promise.all([
+      this.getEmployees(),
+      this.getEmployeeSalaries(),
+      this.getPayrollPayments({ month, year }),
+      this.getClientServices(),
+    ]);
+
+    return await Promise.all(allEmployees.map(async (employee) => {
+      const salaryConfig = salaries.find((salary) => salary.employeeId === employee.id);
+      const employeePayments = paymentsThisPeriod.filter((payment) => payment.employeeId === employee.id);
+      const payType = employee.salaryType || "monthly";
+      const salaryCurrency = employee.salaryCurrency || salaryConfig?.currency || "USD";
+      const monthlyAmount = employee.salaryAmount ?? (payType === "monthly" ? (salaryConfig?.amount || 0) : 0);
+      const rateAmount = employee.rate ?? (payType === "per_project" ? (salaryConfig?.amount || 0) : 0);
+      const rateUnitsCount = allServices.filter((service) =>
+        (Array.isArray(service.executionEmployeeIds) ? (service.executionEmployeeIds as string[]) : []).includes(employee.id)
+        && this.isServiceInFinancePeriod(service, month, year)
+      ).length;
+      const expectedBase = payType === "monthly" ? monthlyAmount : rateAmount * rateUnitsCount;
+
+      let paidThisPeriod = 0;
+      for (const payment of employeePayments) {
+        paidThisPeriod += await convertCurrency(payment.amount, payment.currency, displayCurrency);
+      }
+
+      const expectedSalary = expectedBase
+        ? await convertCurrency(expectedBase, salaryCurrency, displayCurrency)
+        : 0;
+      const remainingRaw = expectedSalary - paidThisPeriod;
+
+      return {
+        employeeId: employee.id,
+        payType,
+        salaryCurrency,
+        monthlyAmount,
+        rateAmount,
+        rateUnitsCount,
+        paidThisPeriod: this.roundFinanceAmount(paidThisPeriod),
+        remaining: this.roundFinanceAmount(remainingRaw > 0.01 ? remainingRaw : 0),
+        expectedSalary: this.roundFinanceAmount(expectedSalary),
+        payments: employeePayments,
+      };
+    }));
+  }
+
+  async getFinanceClientReport(params: FinanceLedgerParams): Promise<FinanceClientReportItem[]> {
+    const { month, year, displayCurrency } = params;
+    const [allClients, allServices, allPayments, paymentsThisPeriod, allSubPackages, allTransactions] = await Promise.all([
+      this.getClients(),
+      this.getClientServices(),
+      this.getClientPayments({}),
+      this.getClientPayments({ month, year }),
+      this.getSubPackages(),
+      this.getTransactions({}),
+    ]);
+
+    const subPackageMap = new Map(allSubPackages.map((subPackage) => [subPackage.id, subPackage]));
+    const completedServiceIdsWithTransaction = new Set(
+      allTransactions
+        .filter((transaction) => transaction.type === "income" && transaction.relatedType === "client_service" && transaction.relatedId)
+        .map((transaction) => transaction.relatedId!)
+    );
+
+    return await Promise.all(
+      allClients
+        .filter((client) => client.status === "active" || client.status === "completed")
+        .map(async (client) => {
+          const clientServicesList = allServices.filter((service) => service.clientId === client.id);
+
+          let expectedMonthly = 0;
+          let expectedOneTime = 0;
+
+          for (const service of clientServicesList) {
+            if (!service.price || !service.currency) continue;
+            const subPackage = service.subPackageId ? subPackageMap.get(service.subPackageId) : null;
+            const billingType = subPackage?.billingType || "one_time";
+
+            if (billingType === "monthly") {
+              expectedMonthly += await convertCurrency(service.price, service.currency, displayCurrency);
+            } else if (service.status === "completed" && !completedServiceIdsWithTransaction.has(service.id)) {
+              expectedOneTime += await convertCurrency(service.price, service.currency, displayCurrency);
+            }
+          }
+
+          const clientPaymentsThisPeriod = paymentsThisPeriod.filter((payment) => payment.clientId === client.id);
+          let paidThisPeriod = 0;
+          let paidForMonthlyServices = 0;
+          let oneTimePaidThisPeriod = 0;
+
+          for (const payment of clientPaymentsThisPeriod) {
+            const convertedAmount = await convertCurrency(payment.amount, payment.currency, displayCurrency);
+            paidThisPeriod += convertedAmount;
+
+            let isMonthly = false;
+            if (payment.serviceId) {
+              const service = clientServicesList.find((item) => item.id === payment.serviceId);
+              if (service) {
+                const subPackage = service.subPackageId ? subPackageMap.get(service.subPackageId) : null;
+                isMonthly = (subPackage?.billingType || "one_time") === "monthly";
+              }
+            } else {
+              isMonthly = true;
+            }
+
+            if (isMonthly) {
+              paidForMonthlyServices += convertedAmount;
+            } else {
+              oneTimePaidThisPeriod += convertedAmount;
+            }
+          }
+
+          const dueRaw = expectedMonthly - paidForMonthlyServices;
+          const due = dueRaw > 0.01 ? dueRaw : 0;
+
+          return {
+            clientId: client.id,
+            expectedMonthly: this.roundFinanceAmount(expectedMonthly),
+            expectedOneTime: this.roundFinanceAmount(expectedOneTime),
+            paidThisPeriod: this.roundFinanceAmount(paidThisPeriod),
+            oneTimePaidThisPeriod: this.roundFinanceAmount(oneTimePaidThisPeriod),
+            due: this.roundFinanceAmount(due),
+            isOverdue: due > 0,
+            payments: clientPaymentsThisPeriod,
+          };
+        })
+    );
+  }
+
   async getFinanceSummary(params: FinanceSummaryParams): Promise<{
     totalIncome: number;
     totalExpenses: number;
@@ -539,62 +1007,55 @@ export class DatabaseStorage implements IStorage {
     payrollRemaining: number;
     expectedRevenue: number;
     servicesBreakdown: { packageName: string; packageNameAr: string; revenue: number }[];
+    expenseBreakdown: FinanceBreakdownItem[];
     displayCurrency: string;
   }> {
     const { month, year, displayCurrency } = params;
     const now = new Date();
     const currentMonth = now.getMonth() + 1;
     const currentYearNum = now.getFullYear();
+    const calcMonth = month || currentMonth;
+    const calcYear = year || currentYearNum;
+    const [ledger, salaries, payrollPaymentsThisPeriod, allServices, allPayments, allSubPackages, allMainPackages, allServiceTransactions] = await Promise.all([
+      this.buildFinanceLedger({ month, year, displayCurrency }),
+      this.getEmployeeSalaries(),
+      this.getPayrollPayments({ month: calcMonth, year: calcYear }),
+      this.getClientServices(),
+      this.getClientPayments({}),
+      this.getSubPackages(),
+      this.getMainPackages(),
+      this.getTransactions({}),
+    ]);
 
-    // Pass undefined month/year to get all transactions when no filter is set
-    const filterMonth = month || undefined;
-    const filterYear = year || undefined;
-
-    // Get all transactions for the period
-    const allTransactions = await this.getTransactions({ month: filterMonth, year: filterYear });
-    
-    // Calculate totals with currency conversion
-    let totalIncome = 0;
-    let totalExpenses = 0;
-    
-    for (const t of allTransactions) {
-      const converted = await convertCurrency(t.amount, t.currency, displayCurrency);
-      if (t.type === "income") {
-        totalIncome += converted;
-      } else {
-        totalExpenses += converted;
-      }
-    }
+    const totalIncome = ledger
+      .filter((entry) => entry.type === "income")
+      .reduce((sum, entry) => sum + entry.convertedAmount, 0);
+    const totalExpenses = ledger
+      .filter((entry) => entry.type === "expense")
+      .reduce((sum, entry) => sum + entry.convertedAmount, 0);
 
     // Get employee salaries to calculate payroll remaining
-    const salaries = await this.getEmployeeSalaries();
-    const payrollPaymentsThisMonth = await this.getPayrollPayments({ month: filterMonth, year: filterYear });
-    
     let totalExpectedSalaries = 0;
     let totalPaidSalaries = 0;
-    
+
     for (const salary of salaries) {
       if (salary.type === "monthly" && salary.amount) {
         const converted = await convertCurrency(salary.amount, salary.currency, displayCurrency);
         totalExpectedSalaries += converted;
       }
     }
-    
-    for (const payment of payrollPaymentsThisMonth) {
+
+    for (const payment of payrollPaymentsThisPeriod) {
       const converted = await convertCurrency(payment.amount, payment.currency, displayCurrency);
       totalPaidSalaries += converted;
     }
 
     // Calculate Overdue Amount & Expected Revenue
-    const allServices = await this.getClientServices();
-    const allPayments = await this.getClientPayments({});
-    const allSubPackages = await this.getSubPackages();
-    const allMainPackages = await this.getMainPackages();
     const subPackageMap = new Map(allSubPackages.map(sp => [sp.id, sp]));
     const mainPackageMap = new Map(allMainPackages.map(mp => [mp.id, mp]));
+    const serviceMap = new Map(allServices.map((service) => [service.id, service]));
 
     // Build map of auto-created transaction amounts per service (all time, not just current month)
-    const allServiceTransactions = await this.getTransactions({});
     const serviceTransactionAmounts: Record<string, number> = {};
     for (const t of allServiceTransactions) {
       if (t.type === "income" && t.relatedType === "client_service" && t.relatedId) {
@@ -605,7 +1066,7 @@ export class DatabaseStorage implements IStorage {
 
     let overdueAmount = 0;
     let expectedRevenue = 0;
-    const revenueByPackage: Record<string, number> = {}; // mainPackageId -> total
+    const revenueByPackage: Record<string, number> = {};
     const todayStr = now.toISOString().split('T')[0];
 
     for (const service of allServices) {
@@ -613,7 +1074,7 @@ export class DatabaseStorage implements IStorage {
 
       const subPackage = service.subPackageId ? subPackageMap.get(service.subPackageId) : null;
       const billingType = subPackage?.billingType || 'one_time';
-      
+
       const servicePrice = await convertCurrency(service.price, service.currency || 'USD', displayCurrency);
 
       // Calculate total paid for this service (lifetime) including auto-created transactions
@@ -628,63 +1089,164 @@ export class DatabaseStorage implements IStorage {
       if (billingType === 'monthly') {
         // Check if payment for THIS month is made
         if (service.status === 'active' || service.status === 'completed') {
-          const servicePaymentsThisMonth = servicePaymentsAll.filter(p => 
-            p.month === currentMonth && p.year === currentYearNum
+          const servicePaymentsThisMonth = servicePaymentsAll.filter(p =>
+            p.month === calcMonth && p.year === calcYear
           );
           let totalPaidThisMonth = 0;
           for (const p of servicePaymentsThisMonth) {
             totalPaidThisMonth += await convertCurrency(p.amount, p.currency, displayCurrency);
           }
-          
+
           if (totalPaidThisMonth < servicePrice - 1) {
             overdueAmount += (servicePrice - totalPaidThisMonth);
           }
         }
-        // Completed services: add to expected revenue & package breakdown
         if (totalServicePaid < servicePrice - 1) {
           expectedRevenue += (servicePrice - totalServicePaid);
         }
       } else {
-        // One-time/project services
         const isDue = (service.status === 'completed') || (service.endDate && service.endDate < todayStr);
         if (isDue && totalServicePaid < servicePrice - 1) {
           overdueAmount += (servicePrice - totalServicePaid);
         }
-        // Add unpaid amount of completed services to expected revenue
         if (service.status === 'completed' && totalServicePaid < servicePrice - 1) {
           expectedRevenue += (servicePrice - totalServicePaid);
         }
       }
+    }
 
-      // Revenue breakdown by package (actual payments for this service)
-      if (totalServicePaid > 0) {
-        const mainPkgId = service.mainPackageId;
-        revenueByPackage[mainPkgId] = (revenueByPackage[mainPkgId] || 0) + totalServicePaid;
+    for (const entry of ledger) {
+      if (entry.type === "income") {
+        const packageId = entry.serviceId ? (serviceMap.get(entry.serviceId)?.mainPackageId || "main-pkg-6") : "main-pkg-6";
+        revenueByPackage[packageId] = (revenueByPackage[packageId] || 0) + entry.convertedAmount;
       }
     }
 
-    // Build services breakdown
     const servicesBreakdown = Object.entries(revenueByPackage)
       .map(([pkgId, revenue]) => {
         const pkg = mainPackageMap.get(pkgId);
         return {
           packageName: pkg?.nameEn || pkg?.name || "Other",
           packageNameAr: pkg?.name || "أخرى",
-          revenue: Math.round(revenue * 100) / 100,
+          revenue: this.roundFinanceAmount(revenue),
         };
       })
+      .filter((entry) => entry.revenue > 0)
       .sort((a, b) => b.revenue - a.revenue);
 
+    const expenseTotals: Record<string, number> = {};
+    for (const entry of ledger) {
+      if (entry.type !== "expense") continue;
+      expenseTotals[entry.category] = (expenseTotals[entry.category] || 0) + entry.convertedAmount;
+    }
+
+    const expenseBreakdown = Object.entries(expenseTotals)
+      .map(([key, amount]) => {
+        const labels = this.getFinanceCategoryLabels(key);
+        return {
+          key,
+          label: labels.label,
+          labelAr: labels.labelAr,
+          amount: this.roundFinanceAmount(amount),
+        };
+      })
+      .filter((entry) => entry.amount > 0)
+      .sort((a, b) => b.amount - a.amount);
+
     return {
-      totalIncome: Math.round(totalIncome * 100) / 100,
-      totalExpenses: Math.round(totalExpenses * 100) / 100,
-      netProfit: Math.round((totalIncome - totalExpenses) * 100) / 100,
-      overdueAmount: Math.round(overdueAmount * 100) / 100,
-      payrollRemaining: Math.round((totalExpectedSalaries - totalPaidSalaries) * 100) / 100,
-      expectedRevenue: Math.round(expectedRevenue * 100) / 100,
+      totalIncome: this.roundFinanceAmount(totalIncome),
+      totalExpenses: this.roundFinanceAmount(totalExpenses),
+      netProfit: this.roundFinanceAmount(totalIncome - totalExpenses),
+      overdueAmount: this.roundFinanceAmount(overdueAmount),
+      payrollRemaining: this.roundFinanceAmount(totalExpectedSalaries - totalPaidSalaries),
+      expectedRevenue: this.roundFinanceAmount(expectedRevenue),
       servicesBreakdown,
+      expenseBreakdown,
       displayCurrency,
     };
+  }
+
+  async getFinanceTrend(params: FinanceTrendParams): Promise<FinanceTrendPoint[]> {
+    const { month, year, displayCurrency, groupBy = "monthly" } = params;
+    const ledger = await this.buildFinanceLedger({ displayCurrency });
+    const monthNamesEn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const monthNamesAr = ["ينا", "فبر", "مار", "أبر", "ماي", "يون", "يول", "أغس", "سبت", "أكت", "نوف", "ديس"];
+    const makePoint = (key: string, label: string, labelAr: string, entries: FinanceLedgerEntry[]) => {
+      const income = entries.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + entry.convertedAmount, 0);
+      const expenses = entries.filter((entry) => entry.type === "expense").reduce((sum, entry) => sum + entry.convertedAmount, 0);
+      return {
+        key,
+        label,
+        labelAr,
+        income: this.roundFinanceAmount(income),
+        expenses: this.roundFinanceAmount(expenses),
+        netProfit: this.roundFinanceAmount(income - expenses),
+      };
+    };
+
+    if (groupBy === "weekly") {
+      if (month && year) {
+        const daysInMonth = new Date(year, month, 0).getDate();
+        const points: FinanceTrendPoint[] = [];
+        for (let weekIndex = 0; weekIndex < 4; weekIndex++) {
+          const startDay = weekIndex * 7 + 1;
+          const endDay = weekIndex === 3 ? daysInMonth : Math.min((weekIndex + 1) * 7, daysInMonth);
+          const entries = ledger.filter((entry) => {
+            const entryDate = this.parseFinanceDate(entry.date);
+            return entryDate.getFullYear() === year
+              && entryDate.getMonth() + 1 === month
+              && entryDate.getDate() >= startDay
+              && entryDate.getDate() <= endDay;
+          });
+          points.push(makePoint(`w${weekIndex + 1}`, `W${weekIndex + 1}`, `أسبوع ${weekIndex + 1}`, entries));
+        }
+        return points;
+      }
+
+      const nowDate = new Date();
+      const points: FinanceTrendPoint[] = [];
+      for (let offset = 3; offset >= 0; offset--) {
+        const targetDate = new Date(nowDate);
+        targetDate.setDate(targetDate.getDate() - (offset * 7));
+        const weekStart = this.getStartOfWeek(targetDate);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekEnd.getDate() + 6);
+        weekEnd.setHours(23, 59, 59, 999);
+        const entries = ledger.filter((entry) => {
+          const entryDate = this.parseFinanceDate(entry.date);
+          return entryDate >= weekStart && entryDate <= weekEnd;
+        });
+        const weekLabel = 4 - offset;
+        points.push(makePoint(`week-${weekLabel}`, `Week ${weekLabel}`, `الأسبوع ${weekLabel}`, entries));
+      }
+      return points;
+    }
+
+    if (month && year) {
+      const entries = ledger.filter((entry) => {
+        const entryDate = this.parseFinanceDate(entry.date);
+        return entryDate.getFullYear() === year && entryDate.getMonth() + 1 === month;
+      });
+      return [makePoint(`${year}-${String(month).padStart(2, "0")}`, `${monthNamesEn[month - 1]} ${year}`, `${monthNamesAr[month - 1]} ${year}`, entries)];
+    }
+
+    const points: FinanceTrendPoint[] = [];
+    const nowDate = new Date();
+    for (let offset = 5; offset >= 0; offset--) {
+      const targetDate = new Date(nowDate.getFullYear(), nowDate.getMonth() - offset, 1);
+      const entries = ledger.filter((entry) => {
+        const entryDate = this.parseFinanceDate(entry.date);
+        return entryDate.getFullYear() === targetDate.getFullYear() && entryDate.getMonth() === targetDate.getMonth();
+      });
+      const monthIndex = targetDate.getMonth();
+      points.push(makePoint(
+        `${targetDate.getFullYear()}-${String(monthIndex + 1).padStart(2, "0")}`,
+        monthNamesEn[monthIndex],
+        monthNamesAr[monthIndex],
+        entries,
+      ));
+    }
+    return points;
   }
 
   // ========== CALENDAR EVENTS METHODS ==========

@@ -1,9 +1,13 @@
-import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCurrency } from "@/contexts/CurrencyContext";
-import { useData } from "@/contexts/DataContext";
+
+interface RevenueChartProps {
+  filterMonth?: number;
+  filterYear?: number;
+}
 
 const packageColors: Record<string, string> = {
   "main-pkg-1": "hsl(262, 83%, 58%)", // Social Media
@@ -14,38 +18,36 @@ const packageColors: Record<string, string> = {
   "main-pkg-6": "hsl(142, 76%, 36%)", // Custom
 };
 
-export function RevenueChart() {
+export function RevenueChart({ filterMonth, filterYear }: RevenueChartProps) {
   const { language } = useLanguage();
-  const { formatCurrency, convertAmount, currency } = useCurrency();
-  const { clients, mainPackages } = useData();
+  const { formatCurrency, currency } = useCurrency();
 
-  const data = useMemo(() => {
-    const revenueByPackage: Record<string, number> = {};
+  const { data: financeSummary } = useQuery<{
+    servicesBreakdown: { packageName: string; packageNameAr: string; revenue: number }[];
+  }>({
+    queryKey: ["/api/finance-summary", { month: filterMonth, year: filterYear, displayCurrency: currency }],
+    queryFn: async () => {
+      let url = "/api/finance-summary";
+      const params = new URLSearchParams();
+      if (filterMonth !== undefined) params.set("month", String(filterMonth));
+      if (filterYear !== undefined) params.set("year", String(filterYear));
+      params.set("displayCurrency", currency);
+      url += "?" + params.toString();
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch finance summary");
+      return res.json();
+    },
+  });
 
-    clients.forEach((client) => {
-      (client.services || []).forEach((service) => {
-        const pkgId = service.mainPackageId || "main-pkg-6";
-        const amount = convertAmount(service.price || 0, service.currency || "USD", currency);
-        
-        revenueByPackage[pkgId] = (revenueByPackage[pkgId] || 0) + amount;
-      });
-    });
-
-    const result = Object.entries(revenueByPackage)
-      .map(([key, value]) => {
-        const pkg = mainPackages.find(p => p.id === key);
-        return {
-          name: pkg?.nameEn || (key === "main-pkg-6" ? "Custom" : "Other"),
-          nameAr: pkg?.name || (key === "main-pkg-6" ? "مخصص" : "أخرى"),
-          value: value,
-          color: packageColors[key] || "hsl(0, 0%, 50%)",
-        };
-      })
-      .filter((item) => item.value > 0)
-      .sort((a, b) => b.value - a.value);
-      
-    return result;
-  }, [clients, mainPackages, convertAmount, currency]);
+  const data = (financeSummary?.servicesBreakdown || [])
+    .map((item, index) => ({
+      name: item.packageName,
+      nameAr: item.packageNameAr,
+      value: item.revenue,
+      color: packageColors[`main-pkg-${index + 1}`] || packageColors["main-pkg-6"],
+    }))
+    .filter((item) => item.value > 0)
+    .sort((a, b) => b.value - a.value);
 
   const total = data.reduce((sum, item) => sum + item.value, 0);
 
@@ -57,7 +59,7 @@ export function RevenueChart() {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="h-[200px] relative">
+        <div className="h-[300px] relative" style={{ filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.1))" }}>
           <ResponsiveContainer width="100%" height="100%">
             {data.length > 0 ? (
               <PieChart>
@@ -65,13 +67,18 @@ export function RevenueChart() {
                   data={data}
                   cx="50%"
                   cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={2}
+                  innerRadius={80}
+                  outerRadius={110}
+                  paddingAngle={3}
                   dataKey="value"
                 >
                   {data.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+                    <Cell 
+                      key={`cell-${index}`} 
+                      fill={entry.color} 
+                      stroke="white"
+                      strokeWidth={2}
+                    />
                   ))}
                 </Pie>
                 <Tooltip
@@ -80,10 +87,18 @@ export function RevenueChart() {
                     border: "1px solid hsl(var(--border))",
                     borderRadius: "8px",
                   }}
-                  formatter={(value: number, name: string) => [
-                    formatCurrency(value),
-                    data.find((d) => d.name === name)?.[language === "ar" ? "nameAr" : "name"],
-                  ]}
+                  formatter={(value: number, _name: string, entry: any) => {
+                    const percent = total > 0 ? ((value / total) * 100).toFixed(1) : "0";
+                    const item = entry?.payload;
+                    const label = language === "ar" ? item?.nameAr : item?.name;
+                    return [
+                      <div className="flex flex-col gap-0.5">
+                        <span>{formatCurrency(value)}</span>
+                        <span className="text-xs opacity-70">{percent}%</span>
+                      </div>,
+                      label,
+                    ];
+                  }}
                 />
               </PieChart>
             ) : (
@@ -94,8 +109,8 @@ export function RevenueChart() {
           </ResponsiveContainer>
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="text-center">
-              <p className="text-2xl font-bold">{formatCurrency(total)}</p>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-3xl font-bold">{formatCurrency(total)}</p>
+              <p className="text-sm font-medium text-muted-foreground">
                 {language === "ar" ? "الإجمالي" : "Total"}
               </p>
             </div>
@@ -110,6 +125,7 @@ export function RevenueChart() {
               />
               <span className="text-xs text-muted-foreground truncate">
                 {language === "ar" ? item.nameAr : item.name}
+                {total > 0 && ` (${((item.value / total) * 100).toFixed(0)}%)`}
               </span>
             </div>
           ))}
