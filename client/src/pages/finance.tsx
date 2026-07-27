@@ -4,9 +4,9 @@ import {
   DollarSign, TrendingUp, TrendingDown, Wallet, Users, FileText, 
   Plus, RefreshCw, Building, Zap, Megaphone, Wrench, RotateCcw, MoreHorizontal,
   Calendar, ArrowUpRight, ArrowDownRight, CircleDollarSign, ChevronLeft, ChevronRight,
-  ChevronDown, Package, CheckCircle2, Circle, Pencil, Trash2
+  ChevronDown, Package, CheckCircle2, Circle, Pencil, Trash2, Sparkles, Filter, BarChart3
 } from "lucide-react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend } from "recharts";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
 import { Button } from "@/components/ui/button";
 import { HasPermission } from "@/components/permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -111,6 +111,27 @@ const PACKAGE_COLORS: Record<string, string> = {
   "main-pkg-5": "hsl(172, 66%, 50%)",
   "main-pkg-6": "hsl(142, 76%, 36%)",
 };
+
+const CHART_PALETTE = [
+  "hsl(262, 83%, 58%)",
+  "hsl(217, 91%, 60%)",
+  "hsl(172, 66%, 50%)",
+  "hsl(25, 95%, 53%)",
+  "hsl(338, 82%, 60%)",
+  "hsl(142, 76%, 36%)",
+  "hsl(45, 93%, 47%)",
+  "hsl(198, 93%, 60%)",
+];
+
+const PANEL_CARD_CLASS = "border-border/60 bg-background/95 shadow-sm backdrop-blur";
+const FILTER_BAR_CLASS = "flex flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-muted/30 p-3";
+
+const normalizeFinanceLabel = (value?: string | null) =>
+  (value || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^a-z0-9\u0600-\u06ff\s]/gi, "")
+    .trim();
 
 type FinanceSummaryResponse = {
   totalIncome: number;
@@ -286,6 +307,39 @@ export default function FinancePage() {
 
   const [clientFinanceClientFilter, setClientFinanceClientFilter] = useState("all");
   const [clientFinanceStatusFilter, setClientFinanceStatusFilter] = useState("all");
+
+  const resetRevenueFilters = () => {
+    setRevenueTypeFilter("all");
+    setRevenueClientFilter("all");
+    setRevenueServiceFilter("all");
+    setRevenueCurrencyFilter("all");
+  };
+
+  const resetExpenseFilters = () => {
+    setExpenseCategoryFilter("all");
+    setExpenseClientFilter("all");
+    setExpenseServiceFilter("all");
+    setExpenseCurrencyFilter("all");
+  };
+
+  const resetPayrollFilters = () => {
+    setPayrollEmployeeFilter("all");
+    setPayrollPayTypeFilter("all");
+    setPayrollCurrencyFilter("all");
+  };
+
+  const resetLedgerFilters = () => {
+    setLedgerTypeFilter("all");
+    setLedgerCategoryFilter("all");
+    setLedgerClientFilter("all");
+    setLedgerEmployeeFilter("all");
+    setLedgerCurrencyFilter("all");
+  };
+
+  const resetClientFinanceFilters = () => {
+    setClientFinanceClientFilter("all");
+    setClientFinanceStatusFilter("all");
+  };
 
   // Translations
   const t = useMemo(() => ({
@@ -1185,7 +1239,7 @@ export default function FinancePage() {
        .filter((entry) => {
          if (entry.type !== "income") return false;
          if (revenueTypeFilter === "client_payment" && entry.source !== "client_payment") return false;
-         if (revenueTypeFilter === "transaction" && entry.source === "client_payment") return false;
+         if (revenueTypeFilter === "transaction" && entry.source !== "transaction") return false;
          if (revenueClientFilter !== "all" && entry.clientId !== revenueClientFilter) return false;
          if (revenueServiceFilter !== "all" && entry.serviceId !== revenueServiceFilter) return false;
          if (revenueCurrencyFilter !== "all" && entry.currency !== revenueCurrencyFilter) return false;
@@ -1297,7 +1351,7 @@ export default function FinancePage() {
        .filter(item => {
          if (clientFinanceClientFilter !== "all" && item.clientId !== clientFinanceClientFilter) return false;
          if (clientFinanceStatusFilter === "overdue" && !item.isOverdue) return false;
-         if (clientFinanceStatusFilter === "paid" && item.isOverdue) return false;
+         if (clientFinanceStatusFilter === "paid" && (item.isOverdue || item.due > 0 || item.expectedOneTime > 0)) return false;
          return true;
        })
        .map(item => {
@@ -1310,6 +1364,7 @@ export default function FinancePage() {
          paidThisMonth: item.paidThisPeriod,
          due: item.due,
          isOverdue: item.isOverdue,
+         isSettled: item.due <= 0 && item.expectedOneTime <= 0,
          services: Array.isArray(client.services) ? client.services : [],
          payments: item.payments,
        };
@@ -1318,21 +1373,44 @@ export default function FinancePage() {
     }, [clientFinanceData, clientFinanceClientFilter, clientFinanceStatusFilter, clients]);
 
    const overviewRevenueByPackage = useMemo(() => {
-     return (financeSummary?.servicesBreakdown || [])
+     const normalizedPackages = mainPackages.map((pkg) => ({
+       ...pkg,
+       normalizedId: normalizeFinanceLabel(pkg.id),
+       normalizedName: normalizeFinanceLabel(pkg.name),
+       normalizedNameEn: normalizeFinanceLabel(pkg.nameEn),
+     }));
+
+     const baseItems = (financeSummary?.servicesBreakdown || [])
        .map((item, index) => {
-         const matchedPackage = mainPackages.find((pkg) =>
-           pkg.name === item.packageNameAr || pkg.nameEn === item.packageName
+         const normalizedArabicName = normalizeFinanceLabel(item.packageNameAr);
+         const normalizedEnglishName = normalizeFinanceLabel(item.packageName);
+         const matchedPackage = normalizedPackages.find((pkg) =>
+           pkg.normalizedName === normalizedArabicName
+           || pkg.normalizedNameEn === normalizedEnglishName
+           || pkg.normalizedName === normalizedEnglishName
+           || pkg.normalizedNameEn === normalizedArabicName
+           || normalizedArabicName.includes(pkg.normalizedName)
+           || normalizedEnglishName.includes(pkg.normalizedNameEn)
          );
-         const key = matchedPackage?.id || `pkg-${index}`;
+
          return {
+           key: matchedPackage?.id || `package-${index}`,
            name: item.packageName,
            nameAr: item.packageNameAr,
            value: item.revenue,
-           color: PACKAGE_COLORS[key] || "hsl(0, 0%, 50%)",
+           color: matchedPackage?.id
+             ? PACKAGE_COLORS[matchedPackage.id] || CHART_PALETTE[index % CHART_PALETTE.length]
+             : CHART_PALETTE[index % CHART_PALETTE.length],
          };
        })
-       .filter(item => item.value > 0)
+       .filter((item) => item.value > 0)
        .sort((a, b) => b.value - a.value);
+
+     const total = baseItems.reduce((sum, item) => sum + item.value, 0);
+     return baseItems.map((item) => ({
+       ...item,
+       share: total > 0 ? (item.value / total) * 100 : 0,
+     }));
    }, [financeSummary, mainPackages]);
 
     const overviewExpenseByCategory = useMemo(() => {
@@ -1349,12 +1427,20 @@ export default function FinancePage() {
 
      return (financeSummary?.expenseBreakdown || [])
        .map((item) => ({
+         key: item.key,
          name: language === "ar" ? item.labelAr : item.label,
          value: item.amount,
          color: categoryIcons[item.key] || "hsl(0, 0%, 60%)",
        }))
        .filter(item => item.value > 0)
-       .sort((a, b) => b.value - a.value);
+       .sort((a, b) => b.value - a.value)
+       .map((item, _index, items) => {
+         const total = items.reduce((sum, entry) => sum + entry.value, 0);
+         return {
+           ...item,
+           share: total > 0 ? (item.value / total) * 100 : 0,
+         };
+       });
     }, [financeSummary, language]);
 
    const selectedClientDetails = useMemo(() => {
@@ -1529,160 +1615,174 @@ export default function FinancePage() {
   };
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto overflow-x-hidden">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-4 min-w-0">
-        <h1 className="text-2xl font-bold">{t.title}</h1>
-        
-        <div className="flex items-center gap-4 flex-wrap">
-          {/* Professional Period Filter */}
-          <Select value={filterPeriod} onValueChange={(v) => setFilterPeriod(v)}>
-            <SelectTrigger className="w-[160px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">
-                {language === "ar" ? "كل الأوقات" : "All Time"}
-              </SelectItem>
-              <SelectItem value="specific-month">
-                {language === "ar" ? "شهر محدد" : "Specific Month"}
-              </SelectItem>
-              <SelectItem value="specific-year">
-                {language === "ar" ? "سنة محدد" : "Specific Year"}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-
-          {filterPeriod === "specific-month" && (
-            <div className="flex items-center gap-2 bg-muted/50 rounded-lg px-2 py-1">
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={goToPreviousMonth}
-                data-testid="button-prev-month"
-              >
-                <ChevronRight className="h-4 w-4 rtl:rotate-0 rotate-180" />
-              </Button>
-              <Select
-                value={String(selectedMonthNum)}
-                onValueChange={(monthStr) => {
-                  const month = Number(monthStr);
-                  setSelectedMonth(`${selectedYear}-${String(month).padStart(2, "0")}`);
-                }}
-              >
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({length: 12}, (_, i) => (
-                    <SelectItem key={i+1} value={String(i+1)}>
-                      {MONTH_NAMES[language][i]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
-                value={String(selectedYear)}
-                onValueChange={(yearStr) => {
-                  setSelectedMonth(`${yearStr}-${String(selectedMonthNum).padStart(2, "0")}`);
-                }}
-              >
-                <SelectTrigger className="w-[110px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="max-h-[240px]">
-                  {Array.from({length: 10}, (_, i) => {
-                    const y = now.getFullYear() - 5 + i;
-                    return (
-                      <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                    );
-                  })}
-                </SelectContent>
-              </Select>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={goToNextMonth}
-                data-testid="button-next-month"
-              >
-                <ChevronLeft className="h-4 w-4 rtl:rotate-0 rotate-180" />
-              </Button>
-              <div className="min-w-[140px] text-center font-medium" data-testid="text-selected-month">
-                {formatMonthDisplay()}
-              </div>
+    <div className="mx-auto max-w-[1600px] space-y-6 overflow-x-hidden p-4 md:p-6">
+      <section className="rounded-[28px] border border-border/60 bg-gradient-to-br from-primary/10 via-background to-purple-500/5 p-5 shadow-sm md:p-6">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <div className="space-y-3">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              {language === "ar" ? "لوحة مالية موحدة وحديثة" : "Modern unified finance workspace"}
             </div>
-          )}
+            <div className="space-y-2">
+              <h1 className="text-3xl font-bold tracking-tight">{t.title}</h1>
+              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                {language === "ar"
+                  ? "متابعة الإيرادات والمصروفات والرواتب ومالية العملاء من مصدر موحد، مع رسوم أوضح وفلاتر أسهل في الاستخدام."
+                  : "Track revenue, expenses, payroll, and client finance from one source of truth with clearer charts and cleaner filters."}
+              </p>
+            </div>
+          </div>
 
-          {filterPeriod === "specific-year" && (
-            <Select
-              value={String(selectedFilterYear)}
-              onValueChange={(yearStr) => setSelectedFilterYear(Number(yearStr))}
-            >
-              <SelectTrigger className="w-[110px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="max-h-[240px]">
-                {Array.from({length: 10}, (_, i) => {
-                  const y = now.getFullYear() - 5 + i;
-                  return (
-                    <SelectItem key={y} value={String(y)}>{y}</SelectItem>
-                  );
-                })}
-              </SelectContent>
-            </Select>
-          )}
-          
-          {/* Action Buttons */}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <HasPermission permission="finance:create">
-              <Button onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income">
+              <Button className="shadow-sm" onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income">
                 <TrendingUp className="h-4 w-4 me-2" />
                 {t.addIncome}
               </Button>
             </HasPermission>
             <HasPermission permission="finance:create">
-              <Button variant="outline" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense">
+              <Button variant="outline" className="bg-background/80 shadow-sm" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense">
                 <TrendingDown className="h-4 w-4 me-2" />
                 {t.addExpense}
               </Button>
             </HasPermission>
           </div>
         </div>
-      </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-6 mb-6">
-          <TabsTrigger value="overview" data-testid="tab-overview">
+        <div className="mt-5 rounded-[24px] border border-border/60 bg-background/80 p-3 shadow-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-sm font-medium">
+              <Filter className="h-4 w-4 text-primary" />
+              {language === "ar" ? "الفترة الزمنية" : "Time range"}
+            </div>
+
+            <Select value={filterPeriod} onValueChange={(v) => setFilterPeriod(v)}>
+              <SelectTrigger className="w-[170px] bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">
+                  {language === "ar" ? "كل الأوقات" : "All Time"}
+                </SelectItem>
+                <SelectItem value="specific-month">
+                  {language === "ar" ? "شهر محدد" : "Specific Month"}
+                </SelectItem>
+                <SelectItem value="specific-year">
+                  {language === "ar" ? "سنة محددة" : "Specific Year"}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            {filterPeriod === "specific-month" && (
+              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-muted/30 px-2 py-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={goToPreviousMonth}
+                  data-testid="button-prev-month"
+                >
+                  <ChevronRight className="h-4 w-4 rtl:rotate-0 rotate-180" />
+                </Button>
+                <Select
+                  value={String(selectedMonthNum)}
+                  onValueChange={(monthStr) => {
+                    const month = Number(monthStr);
+                    setSelectedMonth(`${selectedYear}-${String(month).padStart(2, "0")}`);
+                  }}
+                >
+                  <SelectTrigger className="w-[140px] bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <SelectItem key={i + 1} value={String(i + 1)}>
+                        {MONTH_NAMES[language][i]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={String(selectedYear)}
+                  onValueChange={(yearStr) => {
+                    setSelectedMonth(`${yearStr}-${String(selectedMonthNum).padStart(2, "0")}`);
+                  }}
+                >
+                  <SelectTrigger className="w-[110px] bg-background">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[240px]">
+                    {Array.from({ length: 10 }, (_, i) => {
+                      const y = now.getFullYear() - 5 + i;
+                      return <SelectItem key={y} value={String(y)}>{y}</SelectItem>;
+                    })}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={goToNextMonth}
+                  data-testid="button-next-month"
+                >
+                  <ChevronLeft className="h-4 w-4 rtl:rotate-0 rotate-180" />
+                </Button>
+                <div className="rounded-xl bg-background px-3 py-2 text-sm font-medium text-foreground" data-testid="text-selected-month">
+                  {formatMonthDisplay()}
+                </div>
+              </div>
+            )}
+
+            {filterPeriod === "specific-year" && (
+              <Select
+                value={String(selectedFilterYear)}
+                onValueChange={(yearStr) => setSelectedFilterYear(Number(yearStr))}
+              >
+                <SelectTrigger className="w-[120px] bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="max-h-[240px]">
+                  {Array.from({ length: 10 }, (_, i) => {
+                    const y = now.getFullYear() - 5 + i;
+                    return <SelectItem key={y} value={String(y)}>{y}</SelectItem>;
+                  })}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-2 rounded-2xl border border-border/60 bg-muted/30 p-2">
+          <TabsTrigger value="overview" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-overview">
             <DollarSign className="h-4 w-4 me-1 hidden sm:inline" />
             {t.overview}
           </TabsTrigger>
-          <TabsTrigger value="revenues" data-testid="tab-revenues">
+          <TabsTrigger value="revenues" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-revenues">
             <TrendingUp className="h-4 w-4 me-1 hidden sm:inline" />
             {t.revenues}
           </TabsTrigger>
-          <TabsTrigger value="expenses" data-testid="tab-expenses">
+          <TabsTrigger value="expenses" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-expenses">
             <TrendingDown className="h-4 w-4 me-1 hidden sm:inline" />
             {t.expenses}
           </TabsTrigger>
-          <TabsTrigger value="payroll" data-testid="tab-payroll">
+          <TabsTrigger value="payroll" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-payroll">
             <Wallet className="h-4 w-4 me-1 hidden sm:inline" />
             {t.payroll}
           </TabsTrigger>
-          <TabsTrigger value="client-finance" data-testid="tab-client-finance">
+          <TabsTrigger value="client-finance" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-client-finance">
             <Users className="h-4 w-4 me-1 hidden sm:inline" />
             {t.clientFinance}
           </TabsTrigger>
-          <TabsTrigger value="ledger" data-testid="tab-ledger">
+          <TabsTrigger value="ledger" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-ledger">
             <FileText className="h-4 w-4 me-1 hidden sm:inline" />
             {t.ledger}
           </TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
-        <TabsContent value="overview">
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
-            <Card>
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+            <Card className={PANEL_CARD_CLASS}>
               <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   {t.totalIncome}
@@ -1693,10 +1793,13 @@ export default function FinancePage() {
                 <div className="text-2xl font-bold text-green-600">
                   {formatCurrency(overviewTotals.totalIncome)}
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {language === "ar" ? "كل الإيرادات المحسوبة من السجل الموحد" : "All income from the unified ledger"}
+                </p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={PANEL_CARD_CLASS}>
               <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   {t.totalExpenses}
@@ -1707,10 +1810,13 @@ export default function FinancePage() {
                 <div className="text-2xl font-bold text-red-600">
                   {formatCurrency(overviewTotals.totalExpenses)}
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {language === "ar" ? "تشمل الرواتب والمصروفات التشغيلية" : "Includes payroll and operating expenses"}
+                </p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={PANEL_CARD_CLASS}>
               <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   {t.netProfit}
@@ -1721,10 +1827,13 @@ export default function FinancePage() {
                 <div className={`text-2xl font-bold ${overviewTotals.netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
                   {formatCurrency(overviewTotals.netProfit)}
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {language === "ar" ? "صافي الفرق بين الإيراد والمصروف" : "Net difference between income and expense"}
+                </p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={PANEL_CARD_CLASS}>
               <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   {t.overdueAmount}
@@ -1735,10 +1844,13 @@ export default function FinancePage() {
                 <div className="text-2xl font-bold text-orange-600">
                   {formatCurrency(overviewTotals.overdueAmount)}
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {language === "ar" ? "إجمالي المستحقات المتأخرة على العملاء" : "Total overdue client receivables"}
+                </p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={PANEL_CARD_CLASS}>
               <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   {t.payrollRemaining}
@@ -1749,10 +1861,13 @@ export default function FinancePage() {
                 <div className="text-2xl font-bold text-blue-600">
                   {formatCurrency(overviewTotals.payrollRemaining)}
                 </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {language === "ar" ? "المتبقي صرفه للموظفين في الفترة المحددة" : "Remaining payroll in the selected period"}
+                </p>
               </CardContent>
             </Card>
 
-            <Card>
+            <Card className={PANEL_CARD_CLASS}>
               <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   {t.expectedRevenue}
@@ -1770,88 +1885,160 @@ export default function FinancePage() {
             </Card>
           </div>
 
-          {/* Revenue by Package Pie Chart */}
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Package className="h-4 w-4" />
-                {language === "ar" ? "الإيرادات حسب الباقة" : "Revenue by Package"}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
+          <div className="grid gap-6 xl:grid-cols-2">
+            <Card className={PANEL_CARD_CLASS}>
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <Package className="h-4 w-4" />
+                    {language === "ar" ? "الإيرادات حسب الباقة" : "Revenue by Package"}
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    {language === "ar" ? "توزيع أوضح للإيرادات مع نسب كل باقة." : "Clearer package revenue distribution with share percentages."}
+                  </p>
+                </div>
+                <Badge variant="secondary" className="rounded-full px-3 py-1">
+                  <BarChart3 className="me-1 h-3.5 w-3.5" />
+                  {overviewRevenueByPackage.length}
+                </Badge>
+              </CardHeader>
+              <CardContent className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="flex justify-center">
+                  <div className="h-[300px] w-full max-w-[460px] sm:h-[340px] lg:h-[380px]">
                   {overviewRevenueByPackage.length > 0 ? (
-                    <PieChart>
-                      <Pie
-                        data={overviewRevenueByPackage}
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={100}
-                        dataKey="value"
-                        label={({ name, percent, payload }) => {
-                          const displayName = payload?.nameAr || name;
-                          return `${displayName} (${(percent * 100).toFixed(0)}%)`;
-                        }}
-                      >
-                        {overviewRevenueByPackage.map((entry, index) => (
-                          <Cell key={`cell-revenue-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Legend />
-                    </PieChart>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={overviewRevenueByPackage}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius="52%"
+                          outerRadius="82%"
+                          paddingAngle={4}
+                          cornerRadius={10}
+                          dataKey="value"
+                          labelLine={false}
+                        >
+                          {overviewRevenueByPackage.map((entry) => (
+                            <Cell key={entry.key} fill={entry.color} stroke="hsl(var(--background))" strokeWidth={4} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip
+                          formatter={(value: number, _name, item: any) => [
+                            formatCurrency(Number(value)),
+                            item?.payload?.nameAr || item?.payload?.name,
+                          ]}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
                   ) : (
-                    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                       {t.noTransactions}
                     </div>
                   )}
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
+                </div>
+                </div>
+                <div className="grid auto-rows-max gap-3 2xl:max-h-[380px] 2xl:overflow-y-auto 2xl:pe-1">
+                  {overviewRevenueByPackage.map((item) => (
+                    <div key={item.key} className="rounded-2xl border border-border/60 bg-muted/20 p-3">
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="mt-1 h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
+                          <div className="min-w-0">
+                            <p className="break-words font-medium">{language === "ar" ? item.nameAr || item.name : item.name}</p>
+                            <p className="text-xs text-muted-foreground">{item.share.toFixed(1)}%</p>
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right font-semibold">{formatCurrency(item.value)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
 
-          {/* Expenses by Category Pie Chart */}
-          <Card className="mt-4">
-            <CardHeader>
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                {language === "ar" ? "المصروفات حسب الفئة" : "Expenses by Category"}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
+            <Card className={PANEL_CARD_CLASS}>
+              <CardHeader className="flex flex-row items-center justify-between gap-2">
+                <div className="space-y-1">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
+                    <BarChart3 className="h-4 w-4" />
+                    {language === "ar" ? "المصروفات حسب الفئة" : "Expenses by Category"}
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    {language === "ar" ? "عرض أدق للفئات الأعلى صرفًا خلال الفترة." : "A clearer view of the highest spending categories."}
+                  </p>
+                </div>
+                <Badge variant="secondary" className="rounded-full px-3 py-1">
+                  {overviewExpenseByCategory.length}
+                </Badge>
+              </CardHeader>
+              <CardContent className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_320px]">
+                <div className="flex justify-center">
+                  <div className="h-[300px] w-full max-w-[460px] sm:h-[340px] lg:h-[380px]">
                   {overviewExpenseByCategory.length > 0 ? (
-                    <PieChart>
-                      <Pie
-                        data={overviewExpenseByCategory}
-                        cx="50%"
-                        cy="50%"
-                        outerRadius={100}
-                        dataKey="value"
-                        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                      >
-                        {overviewExpenseByCategory.map((entry, index) => (
-                          <Cell key={`cell-expense-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Legend />
-                    </PieChart>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={overviewExpenseByCategory}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius="52%"
+                          outerRadius="82%"
+                          paddingAngle={4}
+                          cornerRadius={10}
+                          dataKey="value"
+                          labelLine={false}
+                        >
+                          {overviewExpenseByCategory.map((entry) => (
+                            <Cell key={entry.key} fill={entry.color} stroke="hsl(var(--background))" strokeWidth={4} />
+                          ))}
+                        </Pie>
+                        <RechartsTooltip
+                          formatter={(value: number, _name, item: any) => [
+                            formatCurrency(Number(value)),
+                            item?.payload?.name,
+                          ]}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
                   ) : (
-                    <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
                       {t.noTransactions}
                     </div>
                   )}
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
+                </div>
+                </div>
+                <div className="grid auto-rows-max gap-3 2xl:max-h-[380px] 2xl:overflow-y-auto 2xl:pe-1">
+                  {overviewExpenseByCategory.map((item) => (
+                    <div key={item.key} className="rounded-2xl border border-border/60 bg-muted/20 p-3">
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="mt-1 h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
+                          <div className="min-w-0">
+                            <p className="break-words font-medium">{item.name}</p>
+                            <p className="text-xs text-muted-foreground">{item.share.toFixed(1)}%</p>
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-right font-semibold">{formatCurrency(item.value)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
 
         {/* Revenues Tab */}
         <TabsContent value="revenues">
-          <Card>
+          <Card className={PANEL_CARD_CLASS}>
             <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
-              <CardTitle>{t.revenues}</CardTitle>
+              <div className="space-y-1">
+                <CardTitle>{t.revenues}</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  {language === "ar" ? "عرض تفصيلي للإيرادات مع فلاتر أوضح وإجمالي مباشر." : "Detailed revenue view with cleaner filters and direct totals."}
+                </p>
+              </div>
               <HasPermission permission="finance:create">
                 <Button size="sm" onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income-tab">
                   <Plus className="h-4 w-4 me-1" />
@@ -1860,7 +2047,7 @@ export default function FinancePage() {
               </HasPermission>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2 mb-4">
+              <div className={`${FILTER_BAR_CLASS} mb-4`}>
                 <Select value={revenueTypeFilter} onValueChange={setRevenueTypeFilter}>
                   <SelectTrigger className="w-[160px]">
                     <SelectValue placeholder={t.type} />
@@ -1908,6 +2095,9 @@ export default function FinancePage() {
                     ))}
                   </SelectContent>
                 </Select>
+                <Button type="button" variant="ghost" className="ms-auto" onClick={resetRevenueFilters}>
+                  {language === "ar" ? "إعادة ضبط الفلاتر" : "Reset Filters"}
+                </Button>
               </div>
               {filteredRevenues.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">{t.noTransactions}</div>
@@ -2011,9 +2201,14 @@ export default function FinancePage() {
 
         {/* Expenses Tab */}
         <TabsContent value="expenses">
-          <Card>
+          <Card className={PANEL_CARD_CLASS}>
             <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
-              <CardTitle>{t.expenses}</CardTitle>
+              <div className="space-y-1">
+                <CardTitle>{t.expenses}</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  {language === "ar" ? "فصل أوضح للمصروفات حسب الفئة والعملة والجهة المرتبطة." : "A clearer expense breakdown by category, currency, and linked entities."}
+                </p>
+              </div>
               <HasPermission permission="finance:create">
                 <Button size="sm" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense-tab">
                   <Plus className="h-4 w-4 me-1" />
@@ -2022,7 +2217,7 @@ export default function FinancePage() {
               </HasPermission>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2 mb-4">
+              <div className={`${FILTER_BAR_CLASS} mb-4`}>
                 <Select value={expenseCategoryFilter} onValueChange={setExpenseCategoryFilter}>
                   <SelectTrigger className="w-[180px]">
                     <SelectValue placeholder={t.category} />
@@ -2073,6 +2268,9 @@ export default function FinancePage() {
                     ))}
                   </SelectContent>
                 </Select>
+                <Button type="button" variant="ghost" className="ms-auto" onClick={resetExpenseFilters}>
+                  {language === "ar" ? "إعادة ضبط الفلاتر" : "Reset Filters"}
+                </Button>
               </div>
               {filteredExpenses.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">{t.noTransactions}</div>
@@ -2173,7 +2371,7 @@ export default function FinancePage() {
         <TabsContent value="payroll">
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Employee Selector */}
-            <Card className="lg:col-span-1">
+            <Card className={`lg:col-span-1 ${PANEL_CARD_CLASS}`}>
               <CardHeader>
                 <CardTitle>{t.selectEmployee}</CardTitle>
               </CardHeader>
@@ -2218,7 +2416,7 @@ export default function FinancePage() {
             </Card>
 
             {/* Employee Details or All Employees Table */}
-            <Card className="lg:col-span-2">
+            <Card className={`lg:col-span-2 ${PANEL_CARD_CLASS}`}>
               <CardHeader>
                 <CardTitle>
                   {selectedPayrollEmployee 
@@ -2370,7 +2568,7 @@ export default function FinancePage() {
                 {(!selectedPayrollEmployee || !selectedEmployeePayroll) && (
                   <>
                     {/* All employees table */}
-                    <div className="flex flex-wrap gap-2 mb-4">
+                    <div className={`${FILTER_BAR_CLASS} mb-4`}>
                     <Select value={payrollEmployeeFilter} onValueChange={setPayrollEmployeeFilter}>
                       <SelectTrigger className="w-[200px]">
                         <SelectValue placeholder={t.employee} />
@@ -2405,6 +2603,9 @@ export default function FinancePage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <Button type="button" variant="ghost" className="ms-auto" onClick={resetPayrollFilters}>
+                      {language === "ar" ? "إعادة ضبط الفلاتر" : "Reset Filters"}
+                    </Button>
                   </div>
                   <Table>
                     <TableHeader>
@@ -2492,12 +2693,17 @@ export default function FinancePage() {
 
         {/* Client Finance Tab - Enhanced with service details */}
         <TabsContent value="client-finance">
-          <Card>
+          <Card className={PANEL_CARD_CLASS}>
             <CardHeader>
-              <CardTitle>{t.clientFinance}</CardTitle>
+              <div className="space-y-1">
+                <CardTitle>{t.clientFinance}</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  {language === "ar" ? "متابعة المبالغ المتوقعة والمدفوعة والمتأخرة لكل عميل." : "Track expected, paid, and overdue amounts for each client."}
+                </p>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2 mb-4">
+              <div className={`${FILTER_BAR_CLASS} mb-4`}>
                 <Select value={clientFinanceClientFilter} onValueChange={setClientFinanceClientFilter}>
                   <SelectTrigger className="w-[200px]">
                     <SelectValue placeholder={t.client} />
@@ -2521,6 +2727,9 @@ export default function FinancePage() {
                     <SelectItem value="paid">{t.paid}</SelectItem>
                   </SelectContent>
                 </Select>
+                <Button type="button" variant="ghost" className="ms-auto" onClick={resetClientFinanceFilters}>
+                  {language === "ar" ? "إعادة ضبط الفلاتر" : "Reset Filters"}
+                </Button>
               </div>
               {filteredClientFinanceData.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">{t.noClients}</div>
@@ -2538,7 +2747,7 @@ export default function FinancePage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredClientFinanceData.map(({ client, expectedMonthly, expectedOneTime, paidThisMonth, due, isOverdue, services }) => (
+                    {filteredClientFinanceData.map(({ client, expectedMonthly, expectedOneTime, paidThisMonth, due, isOverdue, isSettled, services }) => (
                       <TableRow key={client.id} data-testid={`row-client-finance-${client.id}`}>
                         <TableCell className="font-medium">
                           {client.name}
@@ -2552,8 +2761,12 @@ export default function FinancePage() {
                         <TableCell>
                           {isOverdue ? (
                             <Badge variant="destructive">{t.overdue}</Badge>
-                          ) : (
+                          ) : isSettled ? (
                             <Badge variant="secondary">{t.paid}</Badge>
+                          ) : (
+                            <Badge variant="outline">
+                              {language === "ar" ? "قيد التحصيل" : "Outstanding"}
+                            </Badge>
                           )}
                         </TableCell>
                         <TableCell>
@@ -2602,12 +2815,17 @@ export default function FinancePage() {
 
         {/* Transactions Ledger Tab */}
         <TabsContent value="ledger">
-          <Card>
+          <Card className={PANEL_CARD_CLASS}>
             <CardHeader>
-              <CardTitle>{t.ledger}</CardTitle>
+              <div className="space-y-1">
+                <CardTitle>{t.ledger}</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  {language === "ar" ? "السجل المالي الموحد لكل المعاملات والمصادر المشتقة." : "Unified financial ledger for all direct and derived transactions."}
+                </p>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="flex flex-wrap gap-2 mb-4">
+              <div className={`${FILTER_BAR_CLASS} mb-4`}>
                 <Select value={ledgerTypeFilter} onValueChange={setLedgerTypeFilter}>
                   <SelectTrigger className="w-[140px]">
                     <SelectValue placeholder={t.type} />
@@ -2668,6 +2886,9 @@ export default function FinancePage() {
                     ))}
                   </SelectContent>
                 </Select>
+                <Button type="button" variant="ghost" className="ms-auto" onClick={resetLedgerFilters}>
+                  {language === "ar" ? "إعادة ضبط الفلاتر" : "Reset Filters"}
+                </Button>
               </div>
               {filteredLedger.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground">{t.noTransactions}</div>
