@@ -64,12 +64,12 @@ export function IncomeChart({ filterMonth, filterYear }: IncomeChartProps) {
   ];
 
   return (
-    <Card className="col-span-2">
-      <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-        <CardTitle className="text-lg font-semibold">
+    <Card className="w-full">
+      <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 flex-wrap">
+        <CardTitle className="text-base sm:text-lg font-semibold">
           {language === "ar" ? "الإيرادات والمصروفات" : "Income vs Expenses"}
         </CardTitle>
-        <div className="flex gap-1 bg-muted rounded-lg p-1">
+        <div className="flex gap-1 bg-muted rounded-lg p-1 w-full sm:w-auto">
           {periods.map((p) => (
             <Button
               key={p.value}
@@ -77,7 +77,7 @@ export function IncomeChart({ filterMonth, filterYear }: IncomeChartProps) {
               size="sm"
               onClick={() => setPeriod(p.value)}
               className={cn(
-                "text-xs px-3 h-7",
+                "text-xs px-2 sm:px-3 h-7 flex-1 sm:flex-none min-w-0",
                 period === p.value && "bg-background shadow-sm"
               )}
               data-testid={`button-period-${p.value}`}
@@ -88,9 +88,9 @@ export function IncomeChart({ filterMonth, filterYear }: IncomeChartProps) {
         </div>
       </CardHeader>
       <CardContent className="pt-4">
-        <div className="h-[280px]">
+        <div className="h-[240px] sm:h-[280px] md:h-[320px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <AreaChart data={data} margin={{ top: 10, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="incomeGradient" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="hsl(262, 83%, 58%)" stopOpacity={0.3} />
@@ -106,15 +106,20 @@ export function IncomeChart({ filterMonth, filterYear }: IncomeChartProps) {
                 dataKey={language === "ar" ? "monthAr" : "month"}
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
                 reversed={direction === "rtl"}
+                interval={0}
+                angle={-35}
+                textAnchor={direction === "rtl" ? "end" : "start"}
+                height={50}
               />
               <YAxis
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
                 tickFormatter={(value) => `${value / 1000}k`}
                 orientation={direction === "rtl" ? "right" : "left"}
+                width={45}
               />
               <Tooltip
                 contentStyle={{
@@ -122,6 +127,7 @@ export function IncomeChart({ filterMonth, filterYear }: IncomeChartProps) {
                   border: "1px solid hsl(var(--border))",
                   borderRadius: "8px",
                   boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+                  maxWidth: "260px",
                 }}
                 formatter={(value: number, name: string) => [
                   formatCurrency(value, displayCurrency),
@@ -147,16 +153,16 @@ export function IncomeChart({ filterMonth, filterYear }: IncomeChartProps) {
             </AreaChart>
           </ResponsiveContainer>
         </div>
-        <div className="flex items-center justify-center gap-6 mt-4">
+        <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 mt-4">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-primary" />
-            <span className="text-sm text-muted-foreground">
+            <div className="w-3 h-3 shrink-0 rounded-full bg-primary" />
+            <span className="text-xs sm:text-sm text-muted-foreground">
               {language === "ar" ? "الإيرادات" : "Income"}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-orange-500" />
-            <span className="text-sm text-muted-foreground">
+            <div className="w-3 h-3 shrink-0 rounded-full bg-orange-500" />
+            <span className="text-xs sm:text-sm text-muted-foreground">
               {language === "ar" ? "المصروفات" : "Expenses"}
             </span>
           </div>

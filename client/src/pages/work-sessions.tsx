@@ -39,6 +39,26 @@ import {
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 
+type SessionSegment = {
+  type: "work" | "break";
+  startAt: string;
+  endAt?: string;
+  breakType?: "short" | "long" | "lunch" | "meeting" | "other";
+  note?: string;
+};
+
+type SessionTotals = {
+  totalWorkingMs?: number;
+  totalBreakMs?: number;
+};
+
+type SessionEmployee = {
+  id: string;
+  name: string;
+  nameEn?: string | null;
+  profileImage?: string | null;
+};
+
 interface WorkSession {
   id: string;
   employeeId: string;
@@ -46,13 +66,13 @@ interface WorkSession {
   status: "not_started" | "working" | "on_break" | "ended";
   startAt: string | null;
   endAt: string | null;
-  segments: string;
-  totals: string;
-  employee?: any; // Enriched from backend
+  segments: string | SessionSegment[];
+  totals: string | SessionTotals;
+  employee?: SessionEmployee;
 }
 
 // Timer Component
-function SessionTimer({ initialMs, status, segments }: { initialMs: number, status: string, segments: any[] }) {
+function SessionTimer({ initialMs, status, segments }: { initialMs: number; status: string; segments: SessionSegment[] }) {
   const [elapsed, setElapsed] = useState(initialMs);
 
   useEffect(() => {
@@ -158,9 +178,8 @@ export default function WorkSessionsPage() {
     let ended = 0;
 
     workSessions.forEach(session => {
-      let totals: any = {};
-      totals = typeof session.totals === 'string' 
-        ? safeJsonParse(session.totals, {}) 
+      const totals = typeof session.totals === 'string'
+        ? safeJsonParse<SessionTotals>(session.totals, {})
         : (session.totals || {});
       
       totalMs += (totals.totalWorkingMs || 0);
@@ -390,14 +409,13 @@ export default function WorkSessionsPage() {
               workSessions?.map((session) => {
                 const employee = session.employee || employees.find(e => e.id === session.employeeId);
                 
-                let totals: any = {};
-                totals = typeof session.totals === 'string' 
-                  ? safeJsonParse(session.totals, {}) 
+                const totals = typeof session.totals === 'string'
+                  ? safeJsonParse<SessionTotals>(session.totals, {})
                   : (session.totals || {});
 
                 const totalMs = (totals.totalWorkingMs || 0);
                 const segments = typeof session.segments === 'string'
-                  ? safeJsonParse(session.segments, [])
+                  ? safeJsonParse<SessionSegment[]>(session.segments, [])
                   : (session.segments || []);
 
                 // Get Start Time and End Time
@@ -410,7 +428,7 @@ export default function WorkSessionsPage() {
                 if (session.startAt) {
                   startTimeDisplay = format(new Date(session.startAt), "hh:mm a");
                 } else if (segments.length > 0) {
-                   const first = segments[0] as any;
+                   const first = segments[0];
                    if (first && first.startAt) {
                      startTimeDisplay = format(new Date(first.startAt), "hh:mm a");
                    }
@@ -419,7 +437,7 @@ export default function WorkSessionsPage() {
                 if (session.endAt) {
                   endTimeDisplay = format(new Date(session.endAt), "hh:mm a");
                 } else if (session.status === 'ended' && segments.length > 0) {
-                   const last = segments[segments.length - 1] as any;
+                   const last = segments[segments.length - 1];
                    if (last && last.endAt) {
                      endTimeDisplay = format(new Date(last.endAt), "hh:mm a");
                    }

@@ -1,8 +1,9 @@
 import { useState, useMemo } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useData, type ServiceItem, type ConfirmedClient, type ServiceDeliverable } from "@/contexts/DataContext";
+import { useCurrency } from "@/contexts/CurrencyContext";
+import { useData, type ServiceItem, type ConfirmedClient, type ServiceDeliverable, type Deliverable } from "@/contexts/DataContext";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -115,11 +116,55 @@ interface ClientWithServices {
   nextDeadline: string | null;
 }
 
+type NormalizableId = string | number | null | undefined;
+type IdListInput = string[] | string | null | undefined;
+type AuthUserLike = {
+  id: string;
+  email: string;
+  name: string;
+  nameEn?: string;
+  role?: string;
+};
+
+type LegacyServiceFields = {
+  executionEmployeeIds?: IdListInput;
+  salesEmployeeId?: string | null;
+};
+
+type ClientFinanceReportItem = {
+  clientId: string;
+  paidOverall: number;
+  unallocatedPaidOverall: number;
+  totalOutstanding: number;
+  services: {
+    serviceId: string;
+    convertedAmount: number;
+    paidOverall: number;
+    remaining: number;
+    billingType: string;
+    isSettled: boolean;
+  }[];
+};
+
 export default function WorkTrackingPage() {
   const queryClient = useQueryClient();
   const { language } = useLanguage();
+  const { formatCurrency, currency: displayCurrency } = useCurrency();
   const { user, isAdmin } = useAuth();
   const { clients, employees, mainPackages, subPackages, updateService, updateClient, reactivateClient } = useData();
+  const { data: clientFinanceReport = [] } = useQuery<ClientFinanceReportItem[]>({
+    queryKey: ["/api/finance-client-report", { displayCurrency }],
+    queryFn: async () => {
+      const response = await fetch(`/api/finance-client-report?displayCurrency=${encodeURIComponent(displayCurrency)}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to fetch client finance report");
+      }
+      return response.json();
+    },
+  });
+  const financeByClientId = new Map(clientFinanceReport.map((item) => [item.clientId, item]));
   const [searchQuery, setSearchQuery] = useState("");
   const [packageFilter, setPackageFilter] = useState<string>("all");
   const [monthFilter, setMonthFilter] = useState<string>("all");
@@ -169,6 +214,12 @@ export default function WorkTrackingPage() {
       noDeliverables: "لا توجد تسليمات محددة",
       reactivate: "إعادة تفعيل",
       reactivateConfirm: "هل تريد إعادة الخدمات إلى حالة قيد التنفيذ؟",
+      totalPaid: "إجمالي المدفوع",
+      outstandingBalance: "الرصيد المتبقي",
+      unallocatedPayments: "دفعات غير مخصصة",
+      serviceValue: "قيمة الخدمة",
+      paidAmount: "المدفوع",
+      remainingAmount: "المتبقي",
     },
     en: {
       title: "Work Tracking",
@@ -211,6 +262,12 @@ export default function WorkTrackingPage() {
       noDeliverables: "No deliverables defined",
       reactivate: "Reactivate",
       reactivateConfirm: "Do you want to reset services to in-progress?",
+      totalPaid: "Total Paid",
+      outstandingBalance: "Outstanding Balance",
+      unallocatedPayments: "Unallocated Payments",
+      serviceValue: "Service Value",
+      paidAmount: "Paid",
+      remainingAmount: "Remaining",
     },
   };
 
@@ -465,35 +522,49 @@ export default function WorkTrackingPage() {
   };
 
   // Helper to safely check array inclusion with robust ID comparison
-  const normalizeId = (id: any) => String(id || "").trim().toLowerCase();
+  const normalizeId = (id: NormalizableId) => String(id || "").trim().toLowerCase();
   
-  const isUserInList = (list: any, userId: string | undefined) => {
-    if (!userId) return false;
-    const normalizedUserId = normalizeId(userId);
-    
-    let safeList: any[] = [];
+  const parseIdList = (list: IdListInput): string[] => {
     if (Array.isArray(list)) {
-      safeList = list;
-    } else if (typeof list === 'string' && list.trim() !== "") {
-      if (list.startsWith('[') && list.endsWith(']')) {
-        try { safeList = JSON.parse(list); } catch { safeList = []; }
-      } else {
-        // Handle comma separated strings
-        safeList = list.split(',').map(s => s.trim());
-      }
+      return list.map((item) => String(item).trim()).filter(Boolean);
     }
-    
-    if (!Array.isArray(safeList)) return false;
-    return safeList.some(id => normalizeId(id) === normalizedUserId);
+
+    if (typeof list === "string" && list.trim() !== "") {
+      if (list.startsWith("[") && list.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(list) as unknown;
+          return Array.isArray(parsed)
+            ? parsed.map((item) => String(item).trim()).filter(Boolean)
+            : [];
+        } catch {
+          return [];
+        }
+      }
+
+      return list.split(",").map((item) => item.trim()).filter(Boolean);
+    }
+
+    return [];
   };
 
-  const isSameUser = (id1: any, id2: any) => {
+  const isUserInList = (list: IdListInput, userId: string | undefined) => {
+    if (!userId) return false;
+    const normalizedUserId = normalizeId(userId);
+    return parseIdList(list).some((id) => normalizeId(id) === normalizedUserId);
+  };
+
+  const isSameUser = (id1: NormalizableId, id2: NormalizableId) => {
      const n1 = normalizeId(id1);
      const n2 = normalizeId(id2);
      return n1 !== "" && n1 === n2;
   };
 
-  const checkUserPermission = (service: ServiceItem, client: ConfirmedClient | undefined, currentUser: any, isUserAdmin: boolean) => {
+  const checkUserPermission = (
+    service: ServiceItem,
+    client: ConfirmedClient | undefined,
+    currentUser: AuthUserLike | null | undefined,
+    isUserAdmin: boolean
+  ) => {
     if (!currentUser) return false;
     if (isUserAdmin) return true;
     
@@ -510,36 +581,23 @@ export default function WorkTrackingPage() {
     
     const empId = currentEmployee ? normalizeId(currentEmployee.id) : uid;
     
-    const isMatch = (id: any) => {
+    const isMatch = (id: NormalizableId) => {
       const nid = normalizeId(id);
       if (!nid) return false;
       return nid === uid || nid === empId || nid === uemail || nid === uname;
     };
 
-    const inList = (list: any) => {
-      let safeList: any[] = [];
-      if (Array.isArray(list)) {
-        safeList = list;
-      } else if (typeof list === 'string' && list.trim() !== "") {
-        if (list.startsWith('[') && list.endsWith(']')) {
-          try { safeList = JSON.parse(list); } catch { safeList = [list]; }
-        } else {
-          safeList = list.split(',').map(s => s.trim());
-        }
-      }
-      
-      if (!Array.isArray(safeList)) return false;
-      return safeList.some(item => isMatch(item));
-    };
+    const legacyService = service as ServiceItem & LegacyServiceFields;
+    const inList = (list: IdListInput) => parseIdList(list).some((item) => isMatch(item));
 
     return (
       // Direct service assignees
       inList(service.serviceAssignees) ||
-      inList((service as any).executionEmployeeIds) ||
+      inList(legacyService.executionEmployeeIds) ||
       isMatch(service.assignedTo) ||
       // Sales owner of the service
       isMatch(service.salesEmployeeId) ||
-      isMatch((service as any).salesEmployeeId) ||
+      isMatch(legacyService.salesEmployeeId) ||
       // Client sales owners
       isMatch(client?.salesOwnerId) ||
       inList(client?.salesOwners) ||
@@ -595,8 +653,9 @@ export default function WorkTrackingPage() {
     if (!client) return (language === "ar" ? "غير محدد" : "Unassigned");
     
     // Collect all potential sales owner IDs
+    const legacyService = service as ServiceItem & LegacyServiceFields;
     const rawIds = [
-      (service as any).salesEmployeeId,
+      legacyService.salesEmployeeId,
       ...(client.salesOwners || []),
       client.salesOwnerId
     ].filter(Boolean);
@@ -654,9 +713,9 @@ export default function WorkTrackingPage() {
     if (service.subPackageId) {
       const sp = subPackages.find(p => p.id === service.subPackageId);
       if (sp && Array.isArray(sp.deliverables) && sp.deliverables.length > 0) {
-        return sp.deliverables.map((t: any) => ({
+        return sp.deliverables.map((t: Deliverable) => ({
           key: t.key,
-          label: language === "ar" ? (t.labelAr || t.label) : (t.labelEn || t.label || t.labelAr),
+          label: language === "ar" ? (t.labelAr || t.label || "") : (t.labelEn || t.label || t.labelAr || ""),
           labelAr: t.labelAr || t.label || "",
           labelEn: t.labelEn || t.label || "",
           target: t.target ? Number(t.target) : (t.value !== undefined && !isNaN(Number(t.value)) ? Number(t.value) : (t.isBoolean ? 1 : 0)),
@@ -761,6 +820,8 @@ export default function WorkTrackingPage() {
   const handleReactivateClient = (clientId: string) => {
     reactivateClient(clientId, true); // true = reset all services to in_progress
     queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/finance-client-report"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/finance-ledger"] });
   };
 
   // Handle mark service completed
@@ -774,6 +835,8 @@ export default function WorkTrackingPage() {
       completedDate: new Date().toISOString().split("T")[0],
     });
     queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/finance-client-report"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/finance-ledger"] });
 
     // Check if all services are completed
     const remainingActive = client.services.filter(s => 
@@ -810,6 +873,8 @@ export default function WorkTrackingPage() {
     const daysInfo = getDaysInfo(service);
     const progress = getServiceProgress(service);
     const deliverables = getDeliverables(service);
+    const clientFinance = financeByClientId.get(clientId);
+    const serviceFinance = clientFinance?.services.find((item) => item.serviceId === service.id);
     
     // Check permissions
     // Admin can edit everything
@@ -873,6 +938,23 @@ export default function WorkTrackingPage() {
           </div>
           <Progress value={progress} className="h-2" />
         </div>
+
+        {serviceFinance && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+            <div className="rounded-lg border p-3 min-w-0">
+              <div className="text-xs text-muted-foreground">{content.serviceValue}</div>
+              <div className="mt-1 font-semibold break-all">{formatCurrency(serviceFinance.convertedAmount, displayCurrency)}</div>
+            </div>
+            <div className="rounded-lg border p-3 min-w-0">
+              <div className="text-xs text-muted-foreground">{content.paidAmount}</div>
+              <div className="mt-1 font-semibold text-green-600 break-all">{formatCurrency(serviceFinance.paidOverall, displayCurrency)}</div>
+            </div>
+            <div className="rounded-lg border p-3 min-w-0">
+              <div className="text-xs text-muted-foreground">{content.remainingAmount}</div>
+              <div className="mt-1 font-semibold text-orange-600 break-all">{formatCurrency(serviceFinance.remaining, displayCurrency)}</div>
+            </div>
+          </div>
+        )}
 
         {/* Deliverables */}
         <div className="space-y-2 mb-3">
@@ -1057,6 +1139,7 @@ export default function WorkTrackingPage() {
     const { client, activeServices, completedServices, totalActivePackages, overduePackages, nextDeadline } = item;
     const isExpanded = expandedClients.has(client.id);
     const services = activeTab === "active" ? activeServices : completedServices;
+    const clientFinance = financeByClientId.get(client.id);
 
     return (
       <Card key={client.id} className="overflow-hidden" data-testid={`client-card-${client.id}`}>
@@ -1129,6 +1212,22 @@ export default function WorkTrackingPage() {
 
           <CollapsibleContent>
             <CardContent className="pt-0 space-y-4">
+              {clientFinance && (
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
+                  <div className="rounded-xl border p-3 min-w-0">
+                    <div className="text-xs text-muted-foreground">{content.totalPaid}</div>
+                    <div className="mt-1 text-lg font-semibold break-all">{formatCurrency(clientFinance.paidOverall, displayCurrency)}</div>
+                  </div>
+                  <div className="rounded-xl border p-3 min-w-0">
+                    <div className="text-xs text-muted-foreground">{content.outstandingBalance}</div>
+                    <div className="mt-1 text-lg font-semibold text-orange-600 break-all">{formatCurrency(clientFinance.totalOutstanding, displayCurrency)}</div>
+                  </div>
+                  <div className="rounded-xl border p-3 min-w-0">
+                    <div className="text-xs text-muted-foreground">{content.unallocatedPayments}</div>
+                    <div className="mt-1 text-lg font-semibold break-all">{formatCurrency(clientFinance.unallocatedPaidOverall, displayCurrency)}</div>
+                  </div>
+                </div>
+              )}
               {services.length === 0 ? (
                 <p className="text-center text-muted-foreground py-4">
                   {activeTab === "active" ? content.noClients : content.noCompletedServices}

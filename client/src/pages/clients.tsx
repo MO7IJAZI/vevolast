@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearch, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   Plus,
   Users,
@@ -212,6 +213,21 @@ const mainPackageToServiceTypeMap: Record<string, string> = {
   "main-pkg-6": "custom",
 };
 
+type ClientFinanceReportItem = {
+  clientId: string;
+  paidOverall: number;
+  unallocatedPaidOverall: number;
+  totalOutstanding: number;
+  services: {
+    serviceId: string;
+    convertedAmount: number;
+    paidOverall: number;
+    remaining: number;
+    billingType: string;
+    isSettled: boolean;
+  }[];
+};
+
 export default function ClientsPage() {
   const { toast } = useToast();
   console.log("[ClientsPage] Component rendering START");
@@ -248,6 +264,21 @@ export default function ClientsPage() {
     getCompletedClients,
     getCompletedClientsThisMonth,
   } = useData();
+
+  const { data: clientFinanceReport = [] } = useQuery<ClientFinanceReportItem[]>({
+    queryKey: ["/api/finance-client-report", { displayCurrency }],
+    queryFn: async () => {
+      const response = await fetch(`/api/finance-client-report?displayCurrency=${encodeURIComponent(displayCurrency)}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to fetch client finance report");
+      }
+      return response.json();
+    },
+  });
+
+  const financeByClientId = new Map(clientFinanceReport.map((item) => [item.clientId, item]));
   
   const [mainTab, setMainTab] = useState<"clients" | "leads" | "completed">("clients");
   
@@ -478,6 +509,12 @@ export default function ClientsPage() {
       completedDate: "تاريخ الانتهاء",
       emptyCompletedTitle: "لا يوجد عملاء منتهين",
       emptyCompletedSubtitle: "العملاء الذين تم الانتهاء من جميع خدماتهم سيظهرون هنا",
+      totalPaid: "إجمالي المدفوع",
+      outstandingBalance: "الرصيد المتبقي",
+      unallocatedPayments: "دفعات غير مخصصة",
+      serviceValue: "قيمة الخدمة",
+      paidAmount: "المدفوع",
+      remainingAmount: "المتبقي",
     },
     en: {
       title: "Clients",
@@ -570,6 +607,12 @@ export default function ClientsPage() {
       completedDate: "Completed Date",
       emptyCompletedTitle: "No Completed Clients",
       emptyCompletedSubtitle: "Clients with all services completed will appear here",
+      totalPaid: "Total Paid",
+      outstandingBalance: "Outstanding Balance",
+      unallocatedPayments: "Unallocated Payments",
+      serviceValue: "Service Value",
+      paidAmount: "Paid",
+      remainingAmount: "Remaining",
     },
   };
 
@@ -1156,11 +1199,11 @@ export default function ClientsPage() {
             {t.convertConfirmMessage}
           </DialogDescription>
         </DialogHeader>
-        <div className="flex justify-end gap-2 pt-4">
-          <Button variant="outline" onClick={() => setIsConvertModalOpen(false)} data-testid="button-cancel-convert">
+        <div className="flex justify-end gap-2 pt-4 flex-wrap w-full">
+          <Button variant="outline" onClick={() => setIsConvertModalOpen(false)} data-testid="button-cancel-convert" className="w-full sm:w-auto">
             {t.cancel}
           </Button>
-          <Button variant="default" onClick={handleConvertClientToLead} data-testid="button-confirm-convert">
+          <Button variant="default" onClick={handleConvertClientToLead} data-testid="button-confirm-convert" className="w-full sm:w-auto">
             {t.confirmConvert}
           </Button>
         </div>
@@ -1227,7 +1270,7 @@ export default function ClientsPage() {
             <div className="space-y-2">
               <Label>{t.country}</Label>
               <Select value={leadForm.country} onValueChange={(v) => setLeadForm(prev => ({ ...prev, country: v }))}>
-                <SelectTrigger data-testid="select-lead-country">
+                <SelectTrigger className="w-full min-w-0" data-testid="select-lead-country">
                   <SelectValue placeholder={t.selectCountry} />
                 </SelectTrigger>
                 <SelectContent>
@@ -1242,7 +1285,7 @@ export default function ClientsPage() {
             <div className="space-y-2">
               <Label>{t.stage} <span className="text-destructive">*</span></Label>
               <Select value={leadForm.stage} onValueChange={(v) => setLeadForm(prev => ({ ...prev, stage: v as LeadStage }))}>
-                <SelectTrigger data-testid="select-lead-stage">
+                <SelectTrigger className="w-full min-w-0" data-testid="select-lead-stage">
                   <SelectValue placeholder={t.selectStage} />
                 </SelectTrigger>
                 <SelectContent>
@@ -1267,17 +1310,17 @@ export default function ClientsPage() {
             </div>
             <div className="space-y-2">
               <Label>{t.estimatedValue}</Label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Input
                   type="number"
                   value={leadForm.estimatedValue}
                   onChange={(e) => setLeadForm(prev => ({ ...prev, estimatedValue: e.target.value }))}
                   placeholder="0"
-                  className="flex-1"
+                  className="flex-1 min-w-0"
                   data-testid="input-lead-value"
                 />
                 <Select value={leadForm.currency} onValueChange={(v) => setLeadForm(prev => ({ ...prev, currency: v as Currency }))}>
-                  <SelectTrigger className="w-24" data-testid="select-lead-currency">
+                  <SelectTrigger className="w-full sm:w-[96px] min-w-0" data-testid="select-lead-currency">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1293,7 +1336,7 @@ export default function ClientsPage() {
           <div className="space-y-2">
             <Label>{t.negotiator}</Label>
             <Select value={leadForm.negotiatorId} onValueChange={(v) => setLeadForm(prev => ({ ...prev, negotiatorId: v }))}>
-              <SelectTrigger data-testid="select-lead-negotiator">
+              <SelectTrigger className="w-full min-w-0" data-testid="select-lead-negotiator">
                 <SelectValue placeholder={t.selectNegotiator} />
               </SelectTrigger>
               <SelectContent>
@@ -1317,11 +1360,11 @@ export default function ClientsPage() {
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 pt-4 border-t">
-          <Button variant="outline" onClick={() => setIsLeadModalOpen(false)} data-testid="button-cancel-lead">
+        <div className="flex justify-end gap-2 pt-4 border-t flex-wrap w-full">
+          <Button variant="outline" onClick={() => setIsLeadModalOpen(false)} data-testid="button-cancel-lead" className="w-full sm:w-auto">
             {t.cancel}
           </Button>
-          <Button onClick={saveLead} disabled={!leadForm.name} data-testid="button-save-lead">
+          <Button onClick={saveLead} disabled={!leadForm.name} data-testid="button-save-lead" className="w-full sm:w-auto">
             {t.save}
           </Button>
         </div>
@@ -1400,7 +1443,7 @@ export default function ClientsPage() {
               <div className="space-y-2">
                 <Label>{t.country}</Label>
                 <Select value={clientForm.country} onValueChange={(v) => setClientForm(prev => ({ ...prev, country: v }))}>
-                  <SelectTrigger data-testid="select-client-country">
+                  <SelectTrigger className="w-full min-w-0" data-testid="select-client-country">
                     <SelectValue placeholder={t.selectCountry} />
                   </SelectTrigger>
                   <SelectContent>
@@ -1443,7 +1486,7 @@ export default function ClientsPage() {
                     value={selectedMainPackageId} 
                     onValueChange={handleMainPackageSelect}
                   >
-                    <SelectTrigger data-testid="select-main-package">
+                    <SelectTrigger className="w-full min-w-0" data-testid="select-main-package">
                       <SelectValue placeholder={language === "ar" ? "اختر الفئة" : "Select category"} />
                     </SelectTrigger>
                     <SelectContent>
@@ -1463,7 +1506,7 @@ export default function ClientsPage() {
                     onValueChange={handleSubPackageSelect}
                     disabled={!selectedMainPackageId}
                   >
-                    <SelectTrigger data-testid="select-sub-package">
+                    <SelectTrigger className="w-full min-w-0" data-testid="select-sub-package">
                       <SelectValue placeholder={t.selectPackage} />
                     </SelectTrigger>
                     <SelectContent>
@@ -1493,7 +1536,7 @@ export default function ClientsPage() {
                 <div className="space-y-2">
                   <Label>{t.serviceType} <span className="text-destructive">*</span></Label>
                   <Select value={serviceForm.serviceType} onValueChange={(v) => setServiceForm(prev => ({ ...prev, serviceType: v }))}>
-                    <SelectTrigger data-testid="select-service-type">
+                    <SelectTrigger className="w-full min-w-0" data-testid="select-service-type">
                       <SelectValue placeholder={t.selectServiceType} />
                     </SelectTrigger>
                     <SelectContent>
@@ -1538,17 +1581,17 @@ export default function ClientsPage() {
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>{t.price}</Label>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <Input
                       type="number"
                       value={serviceForm.price}
                       onChange={(e) => setServiceForm(prev => ({ ...prev, price: e.target.value }))}
                       placeholder="0"
-                      className="flex-1"
+                      className="flex-1 min-w-0"
                       data-testid="input-service-price"
                     />
                     <Select value={serviceForm.currency} onValueChange={(v) => setServiceForm(prev => ({ ...prev, currency: v as Currency }))}>
-                      <SelectTrigger className="w-24" data-testid="select-service-currency">
+                      <SelectTrigger className="w-full sm:w-[96px] min-w-0" data-testid="select-service-currency">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1571,7 +1614,7 @@ export default function ClientsPage() {
               <div className="space-y-2">
                 <Label>{t.status}</Label>
                 <Select value={serviceForm.status} onValueChange={(v) => setServiceForm(prev => ({ ...prev, status: v as ServiceStatus }))}>
-                  <SelectTrigger data-testid="select-service-status">
+                  <SelectTrigger className="w-full min-w-0" data-testid="select-service-status">
                     <SelectValue placeholder={t.selectStatus} />
                   </SelectTrigger>
                   <SelectContent>
@@ -1589,14 +1632,15 @@ export default function ClientsPage() {
           )}
         </Tabs>
 
-        <div className="flex justify-end gap-2 pt-4 border-t">
-          <Button variant="outline" onClick={() => setIsClientModalOpen(false)} data-testid="button-cancel-client">
+        <div className="flex justify-end gap-2 pt-4 border-t flex-wrap w-full">
+          <Button variant="outline" onClick={() => setIsClientModalOpen(false)} data-testid="button-cancel-client" className="w-full sm:w-auto">
             {t.cancel}
           </Button>
           <Button 
             onClick={saveClient} 
             disabled={!clientForm.name || (!editingClient && !serviceForm.dueDate)}
             data-testid="button-save-client"
+            className="w-full sm:w-auto"
           >
             {t.save}
           </Button>
@@ -1630,7 +1674,7 @@ export default function ClientsPage() {
                   value={selectedMainPackageId} 
                   onValueChange={handleMainPackageSelect}
                 >
-                  <SelectTrigger data-testid="select-modal-main-package">
+                  <SelectTrigger className="w-full min-w-0" data-testid="select-modal-main-package">
                     <SelectValue placeholder={language === "ar" ? "اختر الفئة" : "Select category"} />
                   </SelectTrigger>
                   <SelectContent>
@@ -1650,7 +1694,7 @@ export default function ClientsPage() {
                   onValueChange={handleSubPackageSelect}
                   disabled={!selectedMainPackageId}
                 >
-                  <SelectTrigger data-testid="select-modal-sub-package">
+                  <SelectTrigger className="w-full min-w-0" data-testid="select-modal-sub-package">
                     <SelectValue placeholder={t.selectPackage} />
                   </SelectTrigger>
                   <SelectContent>
@@ -1681,7 +1725,7 @@ export default function ClientsPage() {
             <div className="space-y-2">
               <Label>{t.serviceType} <span className="text-destructive">*</span></Label>
               <Select value={serviceForm.serviceType} onValueChange={(v) => setServiceForm(prev => ({ ...prev, serviceType: v }))}>
-                <SelectTrigger data-testid="select-modal-service-type">
+                <SelectTrigger className="w-full min-w-0" data-testid="select-modal-service-type">
                   <SelectValue placeholder={t.selectServiceType} />
                 </SelectTrigger>
                 <SelectContent>
@@ -1726,17 +1770,17 @@ export default function ClientsPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label>{t.price}</Label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Input
                   type="number"
                   value={serviceForm.price}
                   onChange={(e) => setServiceForm(prev => ({ ...prev, price: e.target.value }))}
                   placeholder="0"
-                  className="flex-1"
+                  className="flex-1 min-w-0"
                   data-testid="input-modal-service-price"
                 />
                 <Select value={serviceForm.currency} onValueChange={(v) => setServiceForm(prev => ({ ...prev, currency: v as Currency }))}>
-                  <SelectTrigger className="w-24" data-testid="select-modal-service-currency">
+                  <SelectTrigger className="w-full sm:w-[96px] min-w-0" data-testid="select-modal-service-currency">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1759,7 +1803,7 @@ export default function ClientsPage() {
           <div className="space-y-2">
             <Label>{t.status}</Label>
             <Select value={serviceForm.status} onValueChange={(v) => setServiceForm(prev => ({ ...prev, status: v as ServiceStatus }))}>
-              <SelectTrigger data-testid="select-modal-service-status">
+              <SelectTrigger className="w-full min-w-0" data-testid="select-modal-service-status">
                 <SelectValue placeholder={t.selectStatus} />
               </SelectTrigger>
               <SelectContent>
@@ -1775,11 +1819,11 @@ export default function ClientsPage() {
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 pt-4 border-t">
-          <Button variant="outline" onClick={() => setIsServiceModalOpen(false)} data-testid="button-cancel-service">
+        <div className="flex justify-end gap-2 pt-4 border-t flex-wrap w-full">
+          <Button variant="outline" onClick={() => setIsServiceModalOpen(false)} data-testid="button-cancel-service" className="w-full sm:w-auto">
             {t.cancel}
           </Button>
-          <Button onClick={saveService} disabled={!serviceForm.dueDate} data-testid="button-save-service">
+          <Button onClick={saveService} disabled={!serviceForm.dueDate} data-testid="button-save-service" className="w-full sm:w-auto">
             {t.save}
           </Button>
         </div>
@@ -1792,6 +1836,8 @@ export default function ClientsPage() {
     const statusInfo = serviceStatuses[service.status];
     const StatusIcon = statusInfo.icon;
     const daysLeft = getDaysUntilDue(service.dueDate);
+    const clientFinance = financeByClientId.get(clientId);
+    const serviceFinance = clientFinance?.services.find((item) => item.serviceId === service.id);
     
     return (
       <div
@@ -1837,6 +1883,22 @@ export default function ClientsPage() {
               </div>
             )}
           </div>
+          {serviceFinance && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
+              <div className="rounded-lg border p-2 min-w-0">
+                <div className="text-[11px] text-muted-foreground">{t.serviceValue}</div>
+                <div className="font-semibold break-all">{formatCurrency(serviceFinance.convertedAmount, displayCurrency)}</div>
+              </div>
+              <div className="rounded-lg border p-2 min-w-0">
+                <div className="text-[11px] text-muted-foreground">{t.paidAmount}</div>
+                <div className="font-semibold text-green-600 break-all">{formatCurrency(serviceFinance.paidOverall, displayCurrency)}</div>
+              </div>
+              <div className="rounded-lg border p-2 min-w-0">
+                <div className="text-[11px] text-muted-foreground">{t.remainingAmount}</div>
+                <div className="font-semibold text-orange-600 break-all">{formatCurrency(serviceFinance.remaining, displayCurrency)}</div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -1908,8 +1970,8 @@ export default function ClientsPage() {
 
       {/* Main Tabs */}
       <Tabs value={mainTab} onValueChange={(v) => setMainTab(v as "clients" | "leads" | "completed")} className="w-full">
-        <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
-          <TabsList>
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-6 w-full min-w-0">
+          <TabsList className="flex-wrap">
             <TabsTrigger value="clients" data-testid="tab-confirmed-clients">
               <Briefcase className="h-4 w-4 me-2" />
               {t.confirmedClients}
@@ -1924,23 +1986,24 @@ export default function ClientsPage() {
             </TabsTrigger>
           </TabsList>
 
-          <div className="flex items-center gap-2">
-            <div className="relative">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto min-w-0">
+            <div className="relative flex-1 sm:flex-none w-full sm:w-[200px] min-w-0">
               <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t.search}
-                className="ps-10 w-[200px]"
+                className="ps-10 w-full"
                 data-testid="input-search"
               />
             </div>
             {mainTab !== "completed" && (
-              <Select value={monthFilter} onValueChange={setMonthFilter}>
-                <SelectTrigger className="w-[180px]" data-testid="select-month-filter-main">
-                  <Filter className="h-4 w-4 me-2" />
-                  <SelectValue placeholder={t.filterByMonth} />
-                </SelectTrigger>
+              <div className="w-full sm:w-auto min-w-0">
+                <Select value={monthFilter} onValueChange={setMonthFilter}>
+                  <SelectTrigger className="w-full sm:w-[180px] min-w-0" data-testid="select-month-filter-main">
+                    <Filter className="h-4 w-4 me-2" />
+                    <SelectValue placeholder={t.filterByMonth} />
+                  </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t.allMonths}</SelectItem>
                   {getAvailableMainTabMonths().map((month) => (
@@ -1948,10 +2011,11 @@ export default function ClientsPage() {
                   ))}
                 </SelectContent>
               </Select>
+              </div>
             )}
             {mainTab === "clients" && (
               <HasPermission permission="clients:create">
-                <Button onClick={() => openClientModal()} data-testid="button-add-client">
+                <Button onClick={() => openClientModal()} data-testid="button-add-client" className="w-full sm:w-auto">
                   <Plus className="h-4 w-4 me-2" />
                   {t.addClient}
                 </Button>
@@ -1959,7 +2023,7 @@ export default function ClientsPage() {
             )}
             {mainTab === "leads" && (
               <HasPermission permission="leads:create">
-                <Button onClick={() => openLeadModal()} data-testid="button-add-lead">
+                <Button onClick={() => openLeadModal()} data-testid="button-add-lead" className="w-full sm:w-auto">
                   <Plus className="h-4 w-4 me-2" />
                   {t.addLead}
                 </Button>
@@ -1971,12 +2035,13 @@ export default function ClientsPage() {
         {/* Confirmed Clients Tab */}
         <TabsContent value="clients" className="space-y-6">
           {/* Active / Archived Toggle */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap w-full min-w-0">
             <Button
               variant={!showArchived ? "default" : "outline"}
               size="sm"
               onClick={() => setShowArchived(false)}
               data-testid="button-active-clients"
+              className="w-full sm:w-auto"
             >
               {t.active} ({activeClients.length})
             </Button>
@@ -1985,6 +2050,7 @@ export default function ClientsPage() {
               size="sm"
               onClick={() => setShowArchived(true)}
               data-testid="button-archived-clients"
+              className="w-full sm:w-auto"
             >
               {t.archived} ({archivedClients.length})
             </Button>
@@ -1992,7 +2058,7 @@ export default function ClientsPage() {
 
 
           {filteredClients.length === 0 ? (
-            <Card className="border-dashed">
+            <Card className="border-dashed w-full min-w-0">
               <CardContent className="flex flex-col items-center justify-center py-16">
                 <div className="p-4 rounded-full bg-primary/10 mb-4">
                   {showArchived ? (
@@ -2015,7 +2081,7 @@ export default function ClientsPage() {
                 </p>
                 {!showArchived && (
                   <HasPermission permission="clients:create">
-                    <Button onClick={() => openClientModal()} data-testid="button-add-first-client">
+                    <Button onClick={() => openClientModal()} data-testid="button-add-first-client" className="w-full sm:w-auto">
                       <Plus className="h-4 w-4 me-2" />
                       {t.addFirstClient}
                     </Button>
@@ -2030,6 +2096,7 @@ export default function ClientsPage() {
                 const services = Array.isArray(client.services) ? client.services : [];
                 const inProgressCount = services.filter(s => s.status === "in_progress").length;
                 const completedCount = services.filter(s => s.status === "completed").length;
+                const clientFinance = financeByClientId.get(client.id);
                 const countryInfo = Array.isArray(countries) ? countries.find(c => c.code === client.country) : undefined;
                 
                 // Get employee IDs from both new arrays and legacy fields for backward compatibility
@@ -2043,7 +2110,7 @@ export default function ClientsPage() {
                 const assignedStaffIds = assignedStaff || (client.assignedManagerId ? [client.assignedManagerId] : []);
                 
                 return (
-                  <Card key={client.id} data-testid={`card-client-${client.id}`}>
+                  <Card key={client.id} data-testid={`card-client-${client.id}`} className="w-full min-w-0">
                     <Collapsible open={isExpanded} onOpenChange={() => toggleClientExpanded(client.id)}>
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between gap-3">
@@ -2192,6 +2259,22 @@ export default function ClientsPage() {
 
                       <CollapsibleContent>
                         <CardContent className="pt-0">
+                          {clientFinance && (
+                            <div className="grid gap-3 grid-cols-1 sm:grid-cols-3 mb-4">
+                              <div className="rounded-xl border p-3 min-w-0">
+                                <div className="text-xs text-muted-foreground">{t.totalPaid}</div>
+                                <div className="mt-1 text-lg font-semibold break-all">{formatCurrency(clientFinance.paidOverall, displayCurrency)}</div>
+                              </div>
+                              <div className="rounded-xl border p-3 min-w-0">
+                                <div className="text-xs text-muted-foreground">{t.outstandingBalance}</div>
+                                <div className="mt-1 text-lg font-semibold text-orange-600 break-all">{formatCurrency(clientFinance.totalOutstanding, displayCurrency)}</div>
+                              </div>
+                              <div className="rounded-xl border p-3 min-w-0">
+                                <div className="text-xs text-muted-foreground">{t.unallocatedPayments}</div>
+                                <div className="mt-1 text-lg font-semibold break-all">{formatCurrency(clientFinance.unallocatedPaidOverall, displayCurrency)}</div>
+                              </div>
+                            </div>
+                          )}
                           <div className="flex items-center justify-between mb-3">
                             <h4 className="font-medium text-sm">{t.purchasedServices}</h4>
                             <HasPermission permission="clients:edit">
@@ -2229,7 +2312,7 @@ export default function ClientsPage() {
         {/* Leads Tab */}
         <TabsContent value="leads" className="space-y-6">
           {filteredLeads.length === 0 ? (
-            <Card className="border-dashed">
+            <Card className="border-dashed w-full min-w-0">
               <CardContent className="flex flex-col items-center justify-center py-16">
                 <div className="p-4 rounded-full bg-primary/10 mb-4">
                   <Target className="h-10 w-10 text-primary" />
@@ -2239,7 +2322,7 @@ export default function ClientsPage() {
                   {t.emptyLeadsSubtitle}
                 </p>
                 <HasPermission permission="leads:create">
-                  <Button onClick={() => openLeadModal()} data-testid="button-add-first-lead">
+                  <Button onClick={() => openLeadModal()} data-testid="button-add-first-lead" className="w-full sm:w-auto">
                     <Plus className="h-4 w-4 me-2" />
                     {t.addFirstLead}
                   </Button>
@@ -2253,7 +2336,7 @@ export default function ClientsPage() {
                 const countryInfo = Array.isArray(countries) ? countries.find(c => c.code === lead.country) : undefined;
                 
                 return (
-                  <Card key={lead.id} className="hover-elevate" data-testid={`card-lead-${lead.id}`}>
+                  <Card key={lead.id} className="hover-elevate w-full min-w-0" data-testid={`card-lead-${lead.id}`}>
                     <CardContent className="p-5">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
@@ -2364,12 +2447,13 @@ export default function ClientsPage() {
         {/* Completed Clients Tab */}
         <TabsContent value="completed" className="space-y-6">
           {/* Filters */}
-          <div className="flex flex-wrap items-center gap-3">
-            <Select value={completedFilters.month || "all"} onValueChange={(v) => setCompletedFilters(prev => ({ ...prev, month: v === "all" ? "" : v }))}>
-              <SelectTrigger className="w-[180px]" data-testid="filter-month">
-                <Filter className="h-4 w-4 me-2" />
-                <SelectValue placeholder={t.filterByMonth} />
-              </SelectTrigger>
+          <div className="flex flex-wrap items-center gap-3 w-full min-w-0">
+            <div className="w-full sm:w-auto min-w-0">
+              <Select value={completedFilters.month || "all"} onValueChange={(v) => setCompletedFilters(prev => ({ ...prev, month: v === "all" ? "" : v }))}>
+                <SelectTrigger className="w-full sm:w-[180px] min-w-0" data-testid="filter-month">
+                  <Filter className="h-4 w-4 me-2" />
+                  <SelectValue placeholder={t.filterByMonth} />
+                </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t.allMonths}</SelectItem>
                 {getAvailableMonths().map((month) => (
@@ -2377,52 +2461,59 @@ export default function ClientsPage() {
                 ))}
               </SelectContent>
             </Select>
+            </div>
 
-            <Select value={completedFilters.country || "all"} onValueChange={(v) => setCompletedFilters(prev => ({ ...prev, country: v === "all" ? "" : v }))}>
-              <SelectTrigger className="w-[180px]" data-testid="filter-country">
-                <SelectValue placeholder={t.filterByCountry} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t.allCountries}</SelectItem>
-                {Array.isArray(countries) && countries.map((c) => (
-                  <SelectItem key={c.code} value={c.code}>
-                    {language === "ar" ? c.labelAr : c.labelEn}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="w-full sm:w-auto min-w-0">
+              <Select value={completedFilters.country || "all"} onValueChange={(v) => setCompletedFilters(prev => ({ ...prev, country: v === "all" ? "" : v }))}>
+                <SelectTrigger className="w-full sm:w-[180px] min-w-0" data-testid="filter-country">
+                  <SelectValue placeholder={t.filterByCountry} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t.allCountries}</SelectItem>
+                  {Array.isArray(countries) && countries.map((c) => (
+                    <SelectItem key={c.code} value={c.code}>
+                      {language === "ar" ? c.labelAr : c.labelEn}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-            <Select value={completedFilters.employeeId || "all"} onValueChange={(v) => setCompletedFilters(prev => ({ ...prev, employeeId: v === "all" ? "" : v }))}>
-              <SelectTrigger className="w-[180px]" data-testid="filter-employee">
-                <SelectValue placeholder={t.filterByEmployee} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t.allEmployees}</SelectItem>
-                {Array.isArray(employees) && employees.filter(e => e.isActive).map((emp) => (
-                  <SelectItem key={emp.id} value={emp.id}>
-                    {language === "ar" ? emp.name : (emp.nameEn || emp.name)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="w-full sm:w-auto min-w-0">
+              <Select value={completedFilters.employeeId || "all"} onValueChange={(v) => setCompletedFilters(prev => ({ ...prev, employeeId: v === "all" ? "" : v }))}>
+                <SelectTrigger className="w-full sm:w-[180px] min-w-0" data-testid="filter-employee">
+                  <SelectValue placeholder={t.filterByEmployee} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t.allEmployees}</SelectItem>
+                  {Array.isArray(employees) && employees.filter(e => e.isActive).map((emp) => (
+                    <SelectItem key={emp.id} value={emp.id}>
+                      {language === "ar" ? emp.name : (emp.nameEn || emp.name)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-            <Select value={completedFilters.serviceCategory || "all"} onValueChange={(v) => setCompletedFilters(prev => ({ ...prev, serviceCategory: v === "all" ? "" : v }))}>
-              <SelectTrigger className="w-[180px]" data-testid="filter-service">
-                <SelectValue placeholder={t.filterByService} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t.allServices}</SelectItem>
-                {Array.isArray(serviceTypes) && serviceTypes.map((s) => (
-                  <SelectItem key={s.key} value={s.key}>
-                    {language === "ar" ? s.labelAr : s.labelEn}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="w-full sm:w-auto min-w-0">
+              <Select value={completedFilters.serviceCategory || "all"} onValueChange={(v) => setCompletedFilters(prev => ({ ...prev, serviceCategory: v === "all" ? "" : v }))}>
+                <SelectTrigger className="w-full sm:w-[180px] min-w-0" data-testid="filter-service">
+                  <SelectValue placeholder={t.filterByService} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t.allServices}</SelectItem>
+                  {Array.isArray(serviceTypes) && serviceTypes.map((s) => (
+                    <SelectItem key={s.key} value={s.key}>
+                      {language === "ar" ? s.labelAr : s.labelEn}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {filteredCompletedClients.length === 0 ? (
-            <Card className="border-dashed">
+            <Card className="border-dashed w-full min-w-0">
               <CardContent className="flex flex-col items-center justify-center py-16">
                 <div className="p-4 rounded-full bg-green-100 dark:bg-green-900/30 mb-4">
                   <CheckCircle2 className="h-10 w-10 text-green-600 dark:text-green-400" />
@@ -2435,6 +2526,7 @@ export default function ClientsPage() {
             <div className="space-y-4">
               {filteredCompletedClients.map((client) => {
                 const countryInfo = countries.find(c => c.code === client.country);
+                const clientFinance = financeByClientId.get(client.id);
                 // Get employee IDs from both new arrays and legacy fields for backward compatibility
                 const salesOwners = typeof client.salesOwners === 'string' 
                   ? safeJsonParse(client.salesOwners, []) 
@@ -2447,7 +2539,7 @@ export default function ClientsPage() {
                 const totalValue = (Array.isArray(client.services) ? client.services : []).reduce((sum, s) => sum + (s.price || 0), 0);
                 
                 return (
-                  <Card key={client.id} className="border-green-200 dark:border-green-800" data-testid={`card-completed-${client.id}`}>
+                  <Card key={client.id} className="border-green-200 dark:border-green-800 w-full min-w-0" data-testid={`card-completed-${client.id}`}>
                     <Collapsible>
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between gap-3">
@@ -2560,15 +2652,43 @@ export default function ClientsPage() {
 
                       <CollapsibleContent>
                         <CardContent className="pt-0">
+                          {clientFinance && (
+                            <div className="grid gap-3 grid-cols-1 sm:grid-cols-3 mb-4">
+                              <div className="rounded-xl border p-3 min-w-0">
+                                <div className="text-xs text-muted-foreground">{t.totalPaid}</div>
+                                <div className="mt-1 text-lg font-semibold break-all">{formatCurrency(clientFinance.paidOverall, displayCurrency)}</div>
+                              </div>
+                              <div className="rounded-xl border p-3 min-w-0">
+                                <div className="text-xs text-muted-foreground">{t.outstandingBalance}</div>
+                                <div className="mt-1 text-lg font-semibold text-orange-600 break-all">{formatCurrency(clientFinance.totalOutstanding, displayCurrency)}</div>
+                              </div>
+                              <div className="rounded-xl border p-3 min-w-0">
+                                <div className="text-xs text-muted-foreground">{t.unallocatedPayments}</div>
+                                <div className="mt-1 text-lg font-semibold break-all">{formatCurrency(clientFinance.unallocatedPaidOverall, displayCurrency)}</div>
+                              </div>
+                            </div>
+                          )}
                           <h4 className="font-medium text-sm mb-3">{t.servicesHistory}</h4>
                           <div className="space-y-2">
                             {(Array.isArray(client.services) ? client.services : []).map((service) => (
-                              <div key={service.id} className="flex items-center justify-between gap-3 p-3 bg-muted/30 rounded-lg">
-                                <div className="flex items-center gap-3">
+                              <div key={service.id} className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 p-3 bg-muted/30 rounded-lg">
+                                <div className="flex items-center gap-3 flex-wrap min-w-0">
                                   <Badge variant="secondary">{getServiceTypeName(service.serviceType)}</Badge>
-                                  <span className="font-medium">{service.serviceName}</span>
+                                  <span className="font-medium break-words">{service.serviceName}</span>
+                                  {(() => {
+                                    const serviceFinance = clientFinance?.services.find((item) => item.serviceId === service.id);
+                                    if (!serviceFinance) return null;
+                                    return (
+                                      <>
+                                        <Badge variant="outline">{t.paidAmount}: {formatCurrency(serviceFinance.paidOverall, displayCurrency)}</Badge>
+                                        <Badge variant="outline" className={serviceFinance.remaining > 0 ? "text-orange-600" : "text-green-600"}>
+                                          {t.remainingAmount}: {formatCurrency(serviceFinance.remaining, displayCurrency)}
+                                        </Badge>
+                                      </>
+                                    );
+                                  })()}
                                 </div>
-                                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
                                   <span>{service.startDate} - {service.completedDate || service.dueDate}</span>
                                   {service.price && (
                                     <Badge variant="outline">

@@ -26,12 +26,45 @@ import { Textarea } from "@/components/ui/textarea";
 import { DateInput } from "@/components/ui/date-picker";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { useData } from "@/contexts/DataContext";
+import { useData, type ConfirmedClient, type Employee } from "@/contexts/DataContext";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { CalendarEvent, EventType, EventStatus, EventPriority } from "@shared/schema";
 import { eventTypeConfigs } from "@shared/schema";
 import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
+
+type SalaryRecord = {
+  employeeId: string;
+  amount: number;
+  currency: string;
+  type: string;
+};
+
+type ClientPaymentRecord = {
+  clientId: string;
+  month: number;
+  year: number;
+};
+
+type PayrollPaymentRecord = {
+  employeeId: string;
+  month: number;
+  year: number;
+};
+
+type ManualEventPayload = {
+  source: "manual";
+  eventType: EventType;
+  titleAr: string;
+  titleEn: string;
+  date: string;
+  time: string | null;
+  status: EventStatus;
+  priority: EventPriority;
+  employeeId: string | null;
+  notes: string | null;
+  reminderDays: string;
+};
 
 // Content translations
 const content = {
@@ -119,11 +152,11 @@ const content = {
 
 // Helper to generate system events from real data
 function generateSystemEvents(
-  clients: any[],
-  employees: any[],
-  salaries: any[],
-  clientPayments: any[],
-  payrollPayments: any[],
+  clients: ConfirmedClient[],
+  employees: Employee[],
+  salaries: SalaryRecord[],
+  clientPayments: ClientPaymentRecord[],
+  payrollPayments: PayrollPaymentRecord[],
   language: "ar" | "en"
 ): Omit<CalendarEvent, "id" | "createdAt" | "updatedAt">[] {
   const today = new Date().toISOString().split("T")[0];
@@ -132,7 +165,7 @@ function generateSystemEvents(
   // Generate package end events from client services
   clients.forEach((client) => {
     if (client.services && client.services.length > 0) {
-      client.services.forEach((service: any) => {
+      client.services.forEach((service) => {
         if (service.dueDate && service.status !== "completed") {
           const dueDate = service.dueDate;
           let status: EventStatus = "upcoming";
@@ -191,12 +224,12 @@ function generateSystemEvents(
   const payrollDate = new Date(now.getFullYear(), now.getMonth(), payrollDay);
   const payrollDateStr = payrollDate.toISOString().split("T")[0];
 
-  employees.forEach((emp: any) => {
-    const salary = salaries.find((s: any) => s.employeeId === emp.id);
+  employees.forEach((emp) => {
+    const salary = salaries.find((s) => s.employeeId === emp.id);
     if (salary && salary.type === "monthly" && salary.amount) {
       // Check if already paid this month
       const paidThisMonth = payrollPayments.some(
-        (p: any) =>
+        (p) =>
           p.employeeId === emp.id &&
           p.month === now.getMonth() + 1 &&
           p.year === now.getFullYear()
@@ -231,7 +264,7 @@ function generateSystemEvents(
   clients
     .filter((c) => c.status === "active" && c.services?.length > 0)
     .forEach((client) => {
-      const monthlyTotal = client.services.reduce((sum: number, s: any) => {
+      const monthlyTotal = client.services.reduce((sum: number, s) => {
         if (s.price && s.status !== "completed") {
           return sum + s.price;
         }
@@ -241,7 +274,7 @@ function generateSystemEvents(
       if (monthlyTotal > 0) {
         // Check if paid this month
         const paidThisMonth = clientPayments.some(
-          (p: any) =>
+          (p) =>
             p.clientId === client.id &&
             p.month === now.getMonth() + 1 &&
             p.year === now.getFullYear()
@@ -289,8 +322,8 @@ function EventCard({
   onNavigate,
 }: {
   event: CalendarEvent | Omit<CalendarEvent, "id" | "createdAt" | "updatedAt">;
-  clients: any[];
-  employees: any[];
+  clients: ConfirmedClient[];
+  employees: Employee[];
   language: "ar" | "en";
   t: typeof content.ar;
   onMarkDone: (id: string) => void;
@@ -442,13 +475,13 @@ export default function CalendarPage() {
   });
 
   // Fetch salaries and payments for system event generation
-  const { data: salaries = [] } = useQuery({
+  const { data: salaries = [] } = useQuery<SalaryRecord[]>({
     queryKey: ["/api/employee-salaries"],
     enabled: canManageSalaries,
   });
 
   const now = new Date();
-  const { data: clientPayments = [] } = useQuery({
+  const { data: clientPayments = [] } = useQuery<ClientPaymentRecord[]>({
     queryKey: ["/api/client-payments", { month: now.getMonth() + 1, year: now.getFullYear() }],
     queryFn: async () => {
       const res = await fetch(`/api/client-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`, {
@@ -460,7 +493,7 @@ export default function CalendarPage() {
     enabled: canFinance,
   });
 
-  const { data: payrollPayments = [] } = useQuery({
+  const { data: payrollPayments = [] } = useQuery<PayrollPaymentRecord[]>({
     queryKey: ["/api/payroll-payments", { month: now.getMonth() + 1, year: now.getFullYear() }],
     queryFn: async () => {
       const res = await fetch(`/api/payroll-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`, {
@@ -477,9 +510,9 @@ export default function CalendarPage() {
     return generateSystemEvents(
       clients,
       employees,
-      salaries as any[],
-      clientPayments as any[],
-      payrollPayments as any[],
+      salaries,
+      clientPayments,
+      payrollPayments,
       language
     );
   }, [clients, employees, salaries, clientPayments, payrollPayments, language]);
@@ -531,7 +564,7 @@ export default function CalendarPage() {
 
   // Mutations
   const createEventMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: ManualEventPayload) => {
       const response = await apiRequest("POST", "/api/calendar-events", data);
       return response.json();
     },
@@ -683,7 +716,15 @@ export default function CalendarPage() {
       </Card>
 
       {/* Views Tabs */}
-      <Tabs value={selectedView} onValueChange={(v) => setSelectedView(v as any)} className="space-y-4">
+      <Tabs
+        value={selectedView}
+        onValueChange={(v) => {
+          if (v === "monthly" || v === "weekly" || v === "agenda") {
+            setSelectedView(v);
+          }
+        }}
+        className="space-y-4"
+      >
         <TabsList>
           <TabsTrigger value="agenda" data-testid="tab-agenda">{t.views.agenda}</TabsTrigger>
           <TabsTrigger value="monthly" data-testid="tab-monthly">{t.views.monthly}</TabsTrigger>
@@ -891,7 +932,7 @@ export default function CalendarPage() {
                       <SelectValue placeholder={t.selectEmployee} />
                     </SelectTrigger>
                     <SelectContent>
-                      {employees.map((emp: any) => (
+                      {employees.map((emp) => (
                         <SelectItem key={emp.id} value={emp.id}>
                           {language === "ar" ? emp.name : emp.nameEn || emp.name}
                         </SelectItem>

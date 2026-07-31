@@ -29,6 +29,14 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { toast } from "@/hooks/use-toast";
 import { safeJsonParse } from "../../utils/safeJson";
 
+type SessionSegment = {
+  type: "work" | "break";
+  startAt: string;
+  endAt?: string;
+  breakType?: "lunch" | "short" | "meeting" | "other";
+  note?: string;
+};
+
 interface WorkSession {
   id: string;
   employeeId: string;
@@ -36,7 +44,7 @@ interface WorkSession {
   status: "not_started" | "working" | "on_break" | "ended";
   startTime: string | null;
   endTime: string | null;
-  segments: any[];
+  segments: string | SessionSegment[];
   totalDuration: number;
   breakDuration: number;
 }
@@ -188,8 +196,8 @@ export function TimeTrackerWidget() {
       if (session.status === "ended") return session.totalDuration || 0;
 
       try {
-        const segments = typeof session.segments === 'string' 
-          ? safeJsonParse(session.segments, []) 
+        const segments = typeof session.segments === 'string'
+          ? safeJsonParse<SessionSegment[]>(session.segments, [])
           : (Array.isArray(session.segments) ? session.segments : []);
         
         let workSeconds = 0;

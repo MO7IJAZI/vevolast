@@ -172,21 +172,21 @@ export default function Dashboard() {
   const txt = content[language];
 
   return (
-    <div className="p-6 space-y-6 max-w-[1600px] mx-auto overflow-x-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 min-w-0">
-        <div>
-          <h1 className="text-2xl font-bold" data-testid="text-dashboard-title">
+    <div className="p-3 sm:p-4 md:p-6 space-y-4 sm:space-y-6 max-w-[1600px] mx-auto overflow-x-hidden">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-2 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold break-words" data-testid="text-dashboard-title">
             {txt.welcome}
           </h1>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground text-sm">
             {filterPeriod === "all"
               ? (language === "ar" ? "جميع الفترات" : "All Time")
               : `${t("month." + selectedMonth)} ${selectedYear}`}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
           <Select value={filterPeriod} onValueChange={setFilterPeriod}>
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-full sm:w-[180px] min-w-0">
               <SelectValue placeholder={language === "ar" ? "اختر الفترة" : "Select period"} />
             </SelectTrigger>
             <SelectContent>
@@ -199,9 +199,9 @@ export default function Dashboard() {
             </SelectContent>
           </Select>
           {filterPeriod === "specific-month" && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
               <Select value={selectedMonth.toString()} onValueChange={(v) => setSelectedMonth(parseInt(v))}>
-                <SelectTrigger className="w-[130px]">
+                <SelectTrigger className="w-[110px] sm:w-[130px] min-w-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -213,7 +213,7 @@ export default function Dashboard() {
                 </SelectContent>
               </Select>
               <Select value={selectedYear.toString()} onValueChange={(v) => setSelectedYear(parseInt(v))}>
-                <SelectTrigger className="w-[100px]">
+                <SelectTrigger className="w-[85px] sm:w-[100px] min-w-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -224,10 +224,10 @@ export default function Dashboard() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="icon" onClick={goToPrevMonth} className="h-9 w-9">
+              <Button variant="outline" size="icon" onClick={goToPrevMonth} className="h-9 w-9 shrink-0">
                 <ChevronLeft className="h-4 w-4" />
               </Button>
-              <Button variant="outline" size="icon" onClick={goToNextMonth} className="h-9 w-9">
+              <Button variant="outline" size="icon" onClick={goToNextMonth} className="h-9 w-9 shrink-0">
                 <ChevronRight className="h-4 w-4" />
               </Button>
             </div>
@@ -236,47 +236,47 @@ export default function Dashboard() {
       </div>
 
       {canViewFinance && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Link href="/finance">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4">
+          <Link href="/finance" className="block min-w-0">
             <KPICard
               title={txt.currentBalance}
               value={formatCurrency(balance)}
               trend={0}
               trendLabel={txt.vsLastMonth}
-              icon={<Wallet className="h-6 w-6 text-primary" />}
+              icon={<Wallet className="h-5 w-5 sm:h-6 sm:w-6 text-primary" />}
               iconBgColor="bg-primary/10"
               clickable
             />
           </Link>
-          <Link href="/finance?filter=income">
+          <Link href="/finance?filter=income" className="block min-w-0">
             <KPICard
               title={txt.totalIncome}
               value={formatCurrency(totalIncome)}
               trend={0}
               trendLabel={txt.vsLastMonth}
-              icon={<TrendingUp className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />}
+              icon={<TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-emerald-600 dark:text-emerald-400" />}
               iconBgColor="bg-emerald-500/10"
               clickable
             />
           </Link>
-          <Link href="/finance?filter=expense">
+          <Link href="/finance?filter=expense" className="block min-w-0">
             <KPICard
               title={txt.totalExpenses}
               value={formatCurrency(totalExpenses)}
               trend={0}
               trendLabel={txt.vsLastMonth}
-              icon={<TrendingDown className="h-6 w-6 text-red-600 dark:text-red-400" />}
+              icon={<TrendingDown className="h-5 w-5 sm:h-6 sm:w-6 text-red-600 dark:text-red-400" />}
               iconBgColor="bg-red-500/10"
               clickable
             />
           </Link>
-          <Link href="/finance">
+          <Link href="/finance" className="block min-w-0">
             <KPICard
               title={txt.netProfit}
               value={formatCurrency(netProfit)}
               trend={0}
               trendLabel={txt.vsLastMonth}
-              icon={<DollarSign className="h-6 w-6 text-blue-600 dark:text-blue-400" />}
+              icon={<DollarSign className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600 dark:text-blue-400" />}
               iconBgColor="bg-blue-500/10"
               clickable
             />
@@ -285,25 +285,29 @@ export default function Dashboard() {
       )}
 
       {canViewFinance && (
-        <div className="grid lg:grid-cols-3 gap-6">
-          <IncomeChart filterMonth={filterMonth} filterYear={filterYear} />
-          <RevenueChart filterMonth={filterMonth} filterYear={filterYear} />
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 sm:gap-6 w-full">
+          <div className="xl:col-span-2 min-w-0">
+            <IncomeChart filterMonth={filterMonth} filterYear={filterYear} />
+          </div>
+          <div className="min-w-0">
+            <RevenueChart filterMonth={filterMonth} filterYear={filterYear} />
+          </div>
         </div>
       )}
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-4 gap-4 sm:gap-6">
         {(isAdmin || hasResourcePermission("clients")) && <ClientsWidget />}
         {(isAdmin || hasResourcePermission("invoices")) && <InvoicesWidget />}
         {(isAdmin || hasResourcePermission("packages")) && <PackagesWidget />}
         {(isAdmin || hasResourcePermission("clients")) && <TopPerformers />}
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
         {(isAdmin || hasResourcePermission("work_tracking")) && <WorkTrackingWidget />}
         <TimeTrackerWidget />
       </div>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
         {(isAdmin || hasResourcePermission("goals")) && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2 pb-2">

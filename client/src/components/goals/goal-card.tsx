@@ -21,7 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useCurrency } from "@/contexts/CurrencyContext";
+import { useCurrency, type Currency } from "@/contexts/CurrencyContext";
 import type { Goal, GoalType, GoalStatus } from "@shared/schema";
 import { goalTypeConfigs } from "@shared/schema";
 import { cn } from "@/lib/utils";
@@ -45,6 +45,8 @@ const typeColors: Record<GoalType, { bg: string; text: string; border: string }>
   performance: { bg: "bg-orange-500/10", text: "text-orange-600 dark:text-orange-400", border: "border-orange-500/20" },
   custom: { bg: "bg-primary/10", text: "text-primary", border: "border-primary/20" },
 };
+
+const supportedCurrencies = new Set<Currency>(["TRY", "USD", "EUR", "SAR", "AED", "EGP"]);
 
 interface GoalCardProps {
   goal: Goal;
@@ -86,8 +88,8 @@ export function GoalCard({ goal, onEdit, onDelete }: GoalCardProps) {
     if (typeConfig?.isPercentage) {
       return `${value}%`;
     }
-    if (typeConfig?.hasCurrency && goal.currency) {
-      const convertedValue = convertAmount(value, goal.currency as any, displayCurrency);
+    if (typeConfig?.hasCurrency && goal.currency && supportedCurrencies.has(goal.currency as Currency)) {
+      const convertedValue = convertAmount(value, goal.currency as Currency, displayCurrency);
       return formatCurrency(convertedValue, displayCurrency);
     }
     return value.toLocaleString(language === "ar" ? "ar-SA" : "en-US");

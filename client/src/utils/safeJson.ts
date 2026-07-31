@@ -1,4 +1,4 @@
-export function safeJsonParse<T = any>(jsonString: string, defaultValue: T): T {
+export function safeJsonParse<T>(jsonString: string, defaultValue: T): T {
   try {
     if (!jsonString || typeof jsonString !== 'string') {
       return defaultValue;
@@ -10,7 +10,7 @@ export function safeJsonParse<T = any>(jsonString: string, defaultValue: T): T {
   }
 }
 
-export function safeJsonParseNullable<T = any>(jsonString: string | null | undefined): T | null {
+export function safeJsonParseNullable<T>(jsonString: string | null | undefined): T | null {
     if (jsonString === null || jsonString === undefined) {
         return null;
     }
@@ -22,7 +22,7 @@ export function safeJsonParseNullable<T = any>(jsonString: string | null | undef
     }
 }
 
-export function safeJsonStringify(value: any, defaultValue = ''): string {
+export function safeJsonStringify(value: unknown, defaultValue = ''): string {
   try {
     return JSON.stringify(value);
   } catch (error) {

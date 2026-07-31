@@ -17,19 +17,38 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useCurrency, currencies, type Currency } from "@/contexts/CurrencyContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { useData } from "@/contexts/DataContext";
+import { useData, type ConfirmedClient, type Employee } from "@/contexts/DataContext";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
+type SalaryRecord = {
+  employeeId: string;
+  amount: number;
+  currency: string;
+  type: string;
+};
+
+type ClientPaymentRecord = {
+  clientId: string;
+  month: number;
+  year: number;
+};
+
+type PayrollPaymentRecord = {
+  employeeId: string;
+  month: number;
+  year: number;
+};
+
 // Generate notifications from real data
 function generateNotifications(
-  clients: any[],
-  employees: any[],
-  salaries: any[],
-  clientPayments: any[],
-  payrollPayments: any[],
+  clients: ConfirmedClient[],
+  employees: Employee[],
+  salaries: SalaryRecord[],
+  clientPayments: ClientPaymentRecord[],
+  payrollPayments: PayrollPaymentRecord[],
   language: "ar" | "en"
 ) {
   const today = new Date().toISOString().split("T")[0];
@@ -51,7 +70,7 @@ function generateNotifications(
   // Check for overdue/upcoming service deliveries
   clients.forEach((client) => {
     if (client.services && client.services.length > 0) {
-      client.services.forEach((service: any) => {
+      client.services.forEach((service) => {
         if (service.dueDate && service.status !== "completed") {
           const dueDate = new Date(service.dueDate);
           const diffDays = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
@@ -117,11 +136,11 @@ function generateNotifications(
   const payrollDateStr = payrollDate.toISOString().split("T")[0];
   const diffToPayroll = Math.ceil((payrollDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-  employees.forEach((emp: any) => {
-    const salary = salaries.find((s: any) => s.employeeId === emp.id);
+  employees.forEach((emp) => {
+    const salary = salaries.find((s) => s.employeeId === emp.id);
     if (salary && salary.type === "monthly" && salary.amount) {
       const paidThisMonth = payrollPayments.some(
-        (p: any) =>
+        (p) =>
           p.employeeId === emp.id &&
           p.month === now.getMonth() + 1 &&
           p.year === now.getFullYear()
@@ -165,14 +184,14 @@ function generateNotifications(
   clients
     .filter((c) => c.status === "active" && c.services?.length > 0)
     .forEach((client) => {
-      const monthlyTotal = client.services.reduce((sum: number, s: any) => {
+      const monthlyTotal = client.services.reduce((sum: number, s) => {
         if (s.price && s.status !== "completed") return sum + s.price;
         return sum;
       }, 0);
 
       if (monthlyTotal > 0) {
         const paidThisMonth = clientPayments.some(
-          (p: any) =>
+          (p) =>
             p.clientId === client.id &&
             p.month === now.getMonth() + 1 &&
             p.year === now.getFullYear()
@@ -231,13 +250,13 @@ export function Header() {
   const [, navigate] = useLocation();
 
   // Fetch salaries and payments for notifications
-  const { data: salaries = [] } = useQuery({
+  const { data: salaries = [] } = useQuery<SalaryRecord[]>({
     queryKey: ["/api/employee-salaries"],
     enabled: canManageSalaries,
   });
 
   const now = new Date();
-  const { data: clientPayments = [] } = useQuery({
+  const { data: clientPayments = [] } = useQuery<ClientPaymentRecord[]>({
     queryKey: ["/api/client-payments", { month: now.getMonth() + 1, year: now.getFullYear() }],
     queryFn: async () => {
       const res = await fetch(`/api/client-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`, {
@@ -249,7 +268,7 @@ export function Header() {
     enabled: canFinance,
   });
 
-  const { data: payrollPayments = [] } = useQuery({
+  const { data: payrollPayments = [] } = useQuery<PayrollPaymentRecord[]>({
     queryKey: ["/api/payroll-payments", { month: now.getMonth() + 1, year: now.getFullYear() }],
     queryFn: async () => {
       const res = await fetch(`/api/payroll-payments?month=${now.getMonth() + 1}&year=${now.getFullYear()}`, {
@@ -266,9 +285,9 @@ export function Header() {
     return generateNotifications(
       clients,
       employees,
-      salaries as any[],
-      clientPayments as any[],
-      payrollPayments as any[],
+      salaries,
+      clientPayments,
+      payrollPayments,
       language
     );
   }, [clients, employees, salaries, clientPayments, payrollPayments, language]);

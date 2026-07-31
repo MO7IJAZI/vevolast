@@ -14,7 +14,7 @@ export function HasAnyPermission({ permissions, children }: PropsWithChildren<{ 
 }
 
 export function HasResourcePermission({ resource, children }: PropsWithChildren<{ resource: string }>) {
-  const { isAdmin, hasResourcePermission } = useAuth() as any;
-  if (isAdmin || (hasResourcePermission && hasResourcePermission(resource))) return <>{children}</>;
+  const { isAdmin, hasResourcePermission } = useAuth();
+  if (isAdmin || hasResourcePermission(resource)) return <>{children}</>;
   return null;
 }

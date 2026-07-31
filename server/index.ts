@@ -20,6 +20,20 @@ function fileLog(message: string) {
   console.log(message);
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function getErrorStatus(error: unknown): number {
+  if (typeof error === "object" && error !== null) {
+    const status = "status" in error ? error.status : "statusCode" in error ? error.statusCode : undefined;
+    if (typeof status === "number") {
+      return status;
+    }
+  }
+  return 500;
+}
+
 fileLog("--- SERVER STARTUP SEQUENCE START ---");
 
 import "dotenv/config";
@@ -60,7 +74,7 @@ app.use(express.urlencoded({ extended: false }));
 app.set("trust proxy", 1);
 
 // const PgSession = connectPgSimple(session); // Removed
-const MySQLStore = MySQLSession(session as any);
+const MySQLStore = MySQLSession(session as unknown as Parameters<typeof MySQLSession>[0]);
 
 const SESSION_MAX_AGE = parseInt(process.env.SESSION_MAX_AGE || String(8 * 60 * 60 * 1000));
 const isProduction = process.env.NODE_ENV === "production";
@@ -78,7 +92,7 @@ const sessionStore = new MySQLStore({
       data: 'data'
     }
   }
-}, pool as any);
+}, pool as unknown as ConstructorParameters<typeof MySQLStore>[1]);
 
 app.use(
   session({
@@ -104,11 +118,11 @@ export function log(message: string, source = "express") {
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+  let capturedJsonResponse: Record<string, unknown> | undefined = undefined;
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
+      capturedJsonResponse = bodyJson as Record<string, unknown> | undefined;
     return originalResJson.apply(res, [bodyJson, ...args]);
   };
 
@@ -137,8 +151,8 @@ app.use((req, res, next) => {
       const connection = await pool.getConnection();
       fileLog("Database connection successful");
       connection.release();
-    } catch (dbErr: any) {
-      fileLog(`DATABASE CONNECTION FAILED: ${dbErr?.message || dbErr}`);
+    } catch (dbErr) {
+      fileLog(`DATABASE CONNECTION FAILED: ${getErrorMessage(dbErr)}`);
     }
 
     await initializeEmailTransporter();
@@ -151,21 +165,21 @@ app.use((req, res, next) => {
     try {
       await seedAdminUser();
       fileLog("Admin user seeding checked");
-    } catch (seedErr: any) {
-      fileLog(`Seeding admin user failed: ${seedErr?.message || seedErr}`);
+    } catch (seedErr) {
+      fileLog(`Seeding admin user failed: ${getErrorMessage(seedErr)}`);
     }
     
     fileLog("Registering routes...");
     try {
       await registerRoutes(httpServer, app);
       fileLog("Routes registered");
-    } catch (routeErr: any) {
-      fileLog(`CRITICAL: Failed to register routes: ${routeErr?.message || routeErr}`);
+    } catch (routeErr) {
+      fileLog(`CRITICAL: Failed to register routes: ${getErrorMessage(routeErr)}`);
     }
 
-    app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-      const status = err.status || err.statusCode || 500;
-      const message = err.message || "Internal Server Error";
+    app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+      const status = getErrorStatus(err);
+      const message = err instanceof Error ? err.message : "Internal Server Error";
 
       console.error("Internal Server Error:", err);
 
@@ -181,8 +195,8 @@ app.use((req, res, next) => {
       try {
         serveStatic(app);
         fileLog("Static files setup complete");
-      } catch (staticErr: any) {
-        fileLog(`Failed to setup static serving: ${staticErr?.message || staticErr}`);
+    } catch (staticErr) {
+        fileLog(`Failed to setup static serving: ${getErrorMessage(staticErr)}`);
       }
     } else {
       fileLog("Setting up Vite development server (Development Mode)");
@@ -190,8 +204,8 @@ app.use((req, res, next) => {
         const { setupVite } = await import("./vite");
         await setupVite(httpServer, app);
         fileLog("Vite setup complete");
-      } catch (viteErr: any) {
-        fileLog(`Failed to setup Vite: ${viteErr?.message || viteErr}`);
+      } catch (viteErr) {
+        fileLog(`Failed to setup Vite: ${getErrorMessage(viteErr)}`);
         try {
           serveStatic(app);
           fileLog("Vite failed; serving static files as fallback");
@@ -204,8 +218,8 @@ app.use((req, res, next) => {
     httpServer.listen(PORT, "0.0.0.0", () => {
       fileLog(`serving on port ${PORT}`);
     });
-  } catch (err: any) {
-    fileLog(`CRITICAL ERROR DURING STARTUP: ${err?.message || err}`);
+  } catch (err) {
+    fileLog(`CRITICAL ERROR DURING STARTUP: ${getErrorMessage(err)}`);
     process.exit(1);
   }
 })();

@@ -29,6 +29,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Login failed";
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -70,8 +74,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userData = await response.json();
       setUser(userData);
       return { success: true };
-    } catch (error: any) {
-      return { success: false, error: error.message || "Login failed" };
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) };
     }
   };
 

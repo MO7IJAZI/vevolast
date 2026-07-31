@@ -8,6 +8,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { apiRequest } from "@/lib/queryClient";
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Login failed";
+}
+
 export default function ClientLogin() {
   const { language } = useLanguage();
   const [, setLocation] = useLocation();
@@ -59,9 +63,9 @@ export default function ClientLogin() {
       });
 
       setLocation("/client");
-    } catch (error: any) {
+    } catch (error) {
       toast({
-        title: content.loginError,
+        title: getErrorMessage(error) || content.loginError,
         description: content.invalidCredentials,
         variant: "destructive",
       });

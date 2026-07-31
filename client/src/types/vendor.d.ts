@@ -1,17 +1,16 @@
 declare module "react-hook-form" {
-  export type FieldValues = Record<string, any>;
+  export type FieldValues = Record<string, unknown>;
   export type FieldPath<TFieldValues extends FieldValues = FieldValues> =
-    keyof TFieldValues extends string ? keyof TFieldValues : string;
+    Extract<keyof TFieldValues, string>;
 
   export type ControllerRenderProps<
     TFieldValues extends FieldValues = FieldValues,
     TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>
   > = {
     name: TName;
-    value: any;
-    onChange: (...event: any[]) => void;
+    value: TFieldValues[TName];
+    onChange: (...event: unknown[]) => void;
     onBlur: () => void;
-    ref: import("react").Ref<any>;
   };
 
   export type ControllerFieldState = {
@@ -22,7 +21,7 @@ declare module "react-hook-form" {
   };
 
   export type UseFormStateReturn<TFieldValues extends FieldValues = FieldValues> = {
-    errors: Partial<Record<keyof TFieldValues, any>>;
+    errors: Partial<Record<keyof TFieldValues, unknown>>;
   };
 
   export type ControllerProps<
@@ -30,29 +29,39 @@ declare module "react-hook-form" {
     TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>
   > = {
     name: TName;
-    control?: any;
+    control?: Record<string, unknown>;
     render: (props: {
       field: ControllerRenderProps<TFieldValues, TName>;
       fieldState: ControllerFieldState;
       formState: UseFormStateReturn<TFieldValues>;
     }) => import("react").ReactElement | null;
-    defaultValue?: any;
-    rules?: any;
+    defaultValue?: unknown;
+    rules?: Record<string, unknown>;
     shouldUnregister?: boolean;
   };
 
   export type UseFormReturn<TFieldValues extends FieldValues = FieldValues> = {
-    control: any;
-    watch: (name?: any) => any;
-    handleSubmit: (cb: (data: TFieldValues) => void) => (e?: any) => void;
-    setValue: (name: any, value: any, options?: any) => void;
+    control: Record<string, unknown>;
+    watch: {
+      (): TFieldValues;
+      <TName extends FieldPath<TFieldValues>>(name: TName): TFieldValues[TName];
+    };
+    handleSubmit: (cb: (data: TFieldValues) => void) => (e?: unknown) => void;
+    setValue: <TName extends FieldPath<TFieldValues>>(
+      name: TName,
+      value: TFieldValues[TName],
+      options?: Record<string, unknown>
+    ) => void;
     reset: (values?: Partial<TFieldValues>) => void;
-    formState: any;
-    getFieldState: (name: any, state: any) => any;
+    formState: Record<string, unknown>;
+    getFieldState: <TName extends FieldPath<TFieldValues>>(
+      name: TName,
+      state: Record<string, unknown>
+    ) => ControllerFieldState;
   };
 
   export function useForm<TFieldValues extends FieldValues = FieldValues>(
-    props?: any
+    props?: Record<string, unknown>
   ): UseFormReturn<TFieldValues>;
 
   export function useFormContext<TFieldValues extends FieldValues = FieldValues>(): UseFormReturn<TFieldValues>;
@@ -70,10 +79,18 @@ declare module "react-hook-form" {
 }
 
 declare module "@hookform/resolvers/zod" {
-  export function zodResolver(schema: any, options?: any): any;
+  export function zodResolver(
+    schema: unknown,
+    options?: Record<string, unknown>
+  ): (values: unknown) => unknown;
 }
 
 declare module "react-day-picker" {
-  export type DayPickerProps = Record<string, any>;
+  export type DayPickerProps = {
+    className?: string;
+    classNames?: Record<string, string>;
+    showOutsideDays?: boolean;
+    components?: Record<string, import("react").ComponentType<import("react").SVGProps<SVGSVGElement>>>;
+  } & Record<string, unknown>;
   export const DayPicker: import("react").ComponentType<DayPickerProps>;
 }

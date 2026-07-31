@@ -30,6 +30,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unexpected error";
+}
+
 export default function SettingsPage() {
   const { language, setLanguage } = useLanguage();
   const { theme, setTheme } = useTheme();
@@ -115,11 +119,11 @@ export default function SettingsPage() {
         title: t.profileUpdated,
         description: language === "ar" ? "تم تحديث صورتك الشخصية" : "Your profile picture has been updated",
       });
-    } catch (error: any) {
+    } catch (error) {
       toast({
         variant: "destructive",
         title: language === "ar" ? "خطأ" : "Error",
-        description: error.message,
+        description: getErrorMessage(error),
       });
     }
   };
@@ -134,11 +138,11 @@ export default function SettingsPage() {
         title: t.resetTriggered,
         description: user.email,
       });
-    } catch (error: any) {
+    } catch (error) {
       toast({
         variant: "destructive",
         title: language === "ar" ? "خطأ" : "Error",
-        description: error.message,
+        description: getErrorMessage(error),
       });
     } finally {
       setIsResetting(false);
@@ -175,11 +179,11 @@ export default function SettingsPage() {
         const data = await res.json();
         throw new Error(data.error || t.passwordError);
       }
-    } catch (error: any) {
+    } catch (error) {
       toast({
         variant: "destructive",
         title: language === "ar" ? "خطأ" : "Error",
-        description: error.message,
+        description: getErrorMessage(error),
       });
     } finally {
       setIsChangingPassword(false);

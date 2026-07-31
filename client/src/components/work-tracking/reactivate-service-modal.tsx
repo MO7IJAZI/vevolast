@@ -177,8 +177,12 @@ export function ReactivateServiceModal({
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
       toast({ title: content.success });
       onOpenChange(false);
-    } catch (error: any) {
-      toast({ title: content.error, description: error?.message, variant: "destructive" });
+    } catch (error) {
+      toast({
+        title: content.error,
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive"
+      });
     } finally {
       setSaving(false);
     }

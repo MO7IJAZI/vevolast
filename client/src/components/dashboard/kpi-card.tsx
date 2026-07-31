@@ -25,14 +25,14 @@ export function KPICard({
   const isNegative = trend && trend < 0;
 
   return (
-    <Card className={cn("hover-elevate", clickable && "cursor-pointer")} data-testid={`card-kpi-${title.toLowerCase().replace(/\s+/g, '-')}`}>
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2 flex-1 min-w-0">
-            <p className="text-sm text-muted-foreground font-medium">{title}</p>
-             <p className="text-3xl font-bold tracking-tight" data-testid={`value-${title.toLowerCase().replace(/\s+/g, '-')}`}>{value}</p>
+    <Card className={cn("w-full hover-elevate overflow-hidden", clickable && "cursor-pointer")} data-testid={`card-kpi-${title.toLowerCase().replace(/\s+/g, '-')}`}>
+      <CardContent className="p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-3 sm:gap-4">
+          <div className="space-y-1.5 sm:space-y-2 flex-1 min-w-0">
+            <p className="text-xs sm:text-sm text-muted-foreground font-medium break-words">{title}</p>
+             <p className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight break-all" data-testid={`value-${title.toLowerCase().replace(/\s+/g, '-')}`}>{value}</p>
             {trend !== undefined && (
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 {isPositive && (
                   <span className="flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
                     <TrendingUp className="h-3 w-3" />
@@ -49,12 +49,12 @@ export function KPICard({
                   <span className="text-muted-foreground text-xs font-medium">0%</span>
                 )}
                 {trendLabel && (
-                  <span className="text-muted-foreground text-xs">{trendLabel}</span>
+                  <span className="text-muted-foreground text-xs truncate">{trendLabel}</span>
                 )}
               </div>
             )}
           </div>
-          <div className={cn("p-3 rounded-xl shrink-0", iconBgColor)}>
+          <div className={cn("p-2.5 sm:p-3 rounded-xl shrink-0", iconBgColor)}>
             {icon}
           </div>
         </div>

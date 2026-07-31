@@ -557,7 +557,7 @@ export default function PackagesPage() {
     }));
   };
 
-  const updateDeliverable = (index: number, field: keyof Deliverable, value: any) => {
+  const updateDeliverable = <K extends keyof Deliverable>(index: number, field: K, value: Deliverable[K]) => {
     setSubFormData((prev) => ({
       ...prev,
       deliverables: prev.deliverables.map((d, i) => {
@@ -663,15 +663,15 @@ export default function PackagesPage() {
                 value={mainFormData.icon}
                 onValueChange={(v) => setMainFormData((prev) => ({ ...prev, icon: v }))}
               >
-                <SelectTrigger data-testid="select-icon">
-                  <div className="flex items-center gap-2">
+                <SelectTrigger className="w-full min-w-0" data-testid="select-icon">
+                  <div className="flex items-center gap-2 min-w-0">
                     {(() => {
                       const IconPreview = iconComponents[mainFormData.icon] || Package;
                       const selectedOption = iconOptions.find(o => o.key === mainFormData.icon);
                       return (
                         <>
-                          <IconPreview className="h-4 w-4" />
-                          <span>{selectedOption ? (language === "ar" ? selectedOption.labelAr : selectedOption.labelEn) : mainFormData.icon}</span>
+                          <IconPreview className="h-4 w-4 shrink-0" />
+                          <span className="truncate">{selectedOption ? (language === "ar" ? selectedOption.labelAr : selectedOption.labelEn) : mainFormData.icon}</span>
                         </>
                       );
                     })()}
@@ -724,11 +724,11 @@ export default function PackagesPage() {
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 pt-4 border-t">
-          <Button variant="outline" onClick={() => setIsMainPackageModalOpen(false)} data-testid="button-cancel-main">
+        <div className="flex justify-end gap-2 pt-4 border-t flex-wrap w-full">
+          <Button variant="outline" onClick={() => setIsMainPackageModalOpen(false)} data-testid="button-cancel-main" className="w-full sm:w-auto">
             {t.cancel}
           </Button>
-          <Button onClick={handleSaveMainPackage} disabled={!mainFormData.name} data-testid="button-save-main-package">
+          <Button onClick={handleSaveMainPackage} disabled={!mainFormData.name} data-testid="button-save-main-package" className="w-full sm:w-auto">
             {t.save}
           </Button>
         </div>
@@ -760,7 +760,7 @@ export default function PackagesPage() {
                 value={subFormData.mainPackageId}
                 onValueChange={(v) => setSubFormData((prev) => ({ ...prev, mainPackageId: v }))}
               >
-                <SelectTrigger data-testid="select-main-package">
+                <SelectTrigger className="w-full min-w-0" data-testid="select-main-package">
                   <SelectValue placeholder={t.selectCategory} />
                 </SelectTrigger>
                 <SelectContent>
@@ -837,6 +837,7 @@ export default function PackagesPage() {
                     onChange={(e) => setSubFormData((prev) => ({ ...prev, price: e.target.value }))}
                     placeholder="0"
                     data-testid="input-sub-price"
+                    className="min-w-0"
                   />
                 </div>
                 <div className="space-y-2">
@@ -845,7 +846,7 @@ export default function PackagesPage() {
                     value={subFormData.currency}
                     onValueChange={(v) => setSubFormData((prev) => ({ ...prev, currency: v as Currency }))}
                   >
-                    <SelectTrigger data-testid="select-sub-currency">
+                    <SelectTrigger className="w-full min-w-0" data-testid="select-sub-currency">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -861,7 +862,7 @@ export default function PackagesPage() {
                     value={subFormData.billingType}
                     onValueChange={(v) => setSubFormData((prev) => ({ ...prev, billingType: v as BillingType }))}
                   >
-                    <SelectTrigger data-testid="select-sub-billing">
+                    <SelectTrigger className="w-full min-w-0" data-testid="select-sub-billing">
                       <SelectValue placeholder={t.selectBilling} />
                     </SelectTrigger>
                     <SelectContent>
@@ -923,9 +924,9 @@ export default function PackagesPage() {
 
           <TabsContent value="deliverables" className="space-y-4 mt-4">
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-3 w-full min-w-0">
                 <Label className="text-base font-medium">{t.templates}</Label>
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex gap-2 flex-wrap w-full sm:w-auto min-w-0">
                   {packageTemplates.map((template) => (
                     <Button
                       key={template.key}
@@ -933,6 +934,7 @@ export default function PackagesPage() {
                       size="sm"
                       onClick={() => applyTemplate(template)}
                       data-testid={`button-template-${template.key}`}
+                      className="w-full sm:w-auto"
                     >
                       {language === "ar" ? template.labelAr : template.labelEn}
                     </Button>
@@ -969,13 +971,14 @@ export default function PackagesPage() {
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-3 w-full min-w-0">
                 <Label className="text-base font-medium">{t.deliverables}</Label>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={addDeliverable}
                   data-testid="button-add-deliverable"
+                  className="w-full sm:w-auto"
                 >
                   <Plus className="h-4 w-4 me-1" />
                   {t.addDeliverable}
@@ -983,7 +986,7 @@ export default function PackagesPage() {
               </div>
 
               {subFormData.deliverables.length === 0 && (
-                <div className="text-center py-6 bg-muted/30 rounded-lg border border-dashed">
+                <div className="text-center py-6 bg-muted/30 rounded-lg border border-dashed w-full min-w-0">
                   <p className="text-muted-foreground text-sm">
                     {language === "ar" ? "لا توجد تسليمات. أضف عناصر أو استخدم قالب جاهز." : "No deliverables. Add items or use a template."}
                   </p>
@@ -992,14 +995,14 @@ export default function PackagesPage() {
 
               <div className="space-y-3 max-h-[300px] overflow-y-auto">
                 {(Array.isArray(subFormData.deliverables) ? subFormData.deliverables : []).map((del, index) => (
-                  <div key={del.key} className="p-3 border rounded-lg bg-muted/20 space-y-2">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
+                  <div key={del.key} className="p-3 border rounded-lg bg-muted/20 space-y-2 w-full min-w-0">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="flex items-center gap-2 flex-wrap min-w-0 flex-1">
                         {(() => {
                           const DelIcon = iconComponents[del.icon || "star"] || Star;
-                          return <DelIcon className="h-4 w-4 text-muted-foreground" />;
+                          return <DelIcon className="h-4 w-4 text-muted-foreground shrink-0" />;
                         })()}
-                        <span className="text-sm font-medium">
+                        <span className="text-sm font-medium truncate">
                           {language === "ar" 
                             ? (del.labelAr || `عنصر ${index + 1}`)
                             : (del.labelEn || `Item ${index + 1}`)}
@@ -1010,11 +1013,12 @@ export default function PackagesPage() {
                         size="icon"
                         onClick={() => removeDeliverable(index)}
                         data-testid={`button-remove-deliverable-${index}`}
+                        className="w-full sm:w-auto shrink-0"
                       >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-5 items-center">
+                    <div className="grid gap-2 sm:grid-cols-5 items-center w-full min-w-0">
                       <div className="col-span-2 space-y-1">
                         <Label className="text-xs">{t.deliverableLabelAr}</Label>
                         <Input
@@ -1022,6 +1026,7 @@ export default function PackagesPage() {
                           value={del.labelAr}
                           onChange={(e) => updateDeliverable(index, "labelAr", e.target.value)}
                           data-testid={`input-del-label-ar-${index}`}
+                          className="min-w-0"
                         />
                       </div>
                       <div className="col-span-2 space-y-1">
@@ -1031,6 +1036,7 @@ export default function PackagesPage() {
                           value={del.labelEn}
                           onChange={(e) => updateDeliverable(index, "labelEn", e.target.value)}
                           data-testid={`input-del-label-en-${index}`}
+                          className="min-w-0"
                         />
                       </div>
                       <div className="col-span-1 space-y-1">
@@ -1040,21 +1046,22 @@ export default function PackagesPage() {
                           value={del.value}
                           onChange={(e) => updateDeliverable(index, "value", e.target.value)}
                           data-testid={`input-del-value-${index}`}
+                          className="min-w-0"
                         />
                       </div>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-5 items-center">
+                    <div className="grid gap-2 sm:grid-cols-5 items-center w-full min-w-0">
                       <div className="col-span-2 space-y-1">
                         <Label className="text-xs">{t.deliverableIcon}</Label>
                         <Select
                           value={del.icon || "star"}
                           onValueChange={(v) => updateDeliverable(index, "icon", v)}
                         >
-                          <SelectTrigger data-testid={`select-del-icon-${index}`}>
-                            <div className="flex items-center gap-1">
+                          <SelectTrigger className="w-full min-w-0" data-testid={`select-del-icon-${index}`}>
+                            <div className="flex items-center gap-1 min-w-0">
                               {(() => {
                                 const IconPreview = iconComponents[del.icon || "star"] || Star;
-                                return <IconPreview className="h-3 w-3" />;
+                                return <IconPreview className="h-3 w-3 shrink-0" />;
                               })()}
                               <span className="truncate">{iconOptions.find(o => o.key === (del.icon || "star"))?.labelAr || del.icon}</span>
                             </div>
@@ -1094,14 +1101,15 @@ export default function PackagesPage() {
           </TabsContent>
         </Tabs>
 
-        <div className="flex justify-end gap-2 pt-4 border-t">
-          <Button variant="outline" onClick={() => setIsSubPackageModalOpen(false)} data-testid="button-cancel-sub">
+        <div className="flex justify-end gap-2 pt-4 border-t flex-wrap w-full">
+          <Button variant="outline" onClick={() => setIsSubPackageModalOpen(false)} data-testid="button-cancel-sub" className="w-full sm:w-auto">
             {t.cancel}
           </Button>
           <Button
             onClick={handleSaveSubPackage}
             disabled={!subFormData.name || !subFormData.price || !subFormData.mainPackageId}
             data-testid="button-save-sub-package"
+            className="w-full sm:w-auto"
           >
             {t.save}
           </Button>
@@ -1113,14 +1121,14 @@ export default function PackagesPage() {
   if (mainPackages.length === 0) {
     return (
       <div className="p-6 max-w-[1600px] mx-auto">
-        <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap mb-6 min-w-0 w-full">
           <div>
             <h1 className="text-2xl font-bold">{t.title}</h1>
             <p className="text-muted-foreground">{t.subtitle}</p>
           </div>
           <HasPermission permission="packages:create">
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => openMainPackageModal()} data-testid="button-add-category">
+            <div className="flex gap-2 flex-wrap w-full sm:w-auto min-w-0">
+              <Button variant="outline" onClick={() => openMainPackageModal()} data-testid="button-add-category" className="w-full sm:w-auto">
                 <Plus className="h-4 w-4 me-2" />
                 {t.addCategory}
               </Button>
@@ -1128,7 +1136,7 @@ export default function PackagesPage() {
           </HasPermission>
         </div>
 
-        <Card className="border-dashed">
+        <Card className="border-dashed w-full min-w-0">
           <CardContent className="flex flex-col items-center justify-center py-16">
             <div className="p-4 rounded-full bg-primary/10 mb-4">
               <Package className="h-10 w-10 text-primary" />
@@ -1138,7 +1146,7 @@ export default function PackagesPage() {
               {t.emptySubtitle}
             </p>
             <HasPermission permission="packages:create">
-              <Button onClick={() => openMainPackageModal()} data-testid="button-add-first-category">
+              <Button onClick={() => openMainPackageModal()} data-testid="button-add-first-category" className="w-full sm:w-auto">
                 <Plus className="h-4 w-4 me-2" />
                 {t.addCategory}
               </Button>
@@ -1153,18 +1161,18 @@ export default function PackagesPage() {
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto">
-      <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
+      <div className="flex items-center justify-between gap-4 flex-wrap mb-6 min-w-0 w-full">
         <div>
           <h1 className="text-2xl font-bold">{t.title}</h1>
           <p className="text-muted-foreground">{t.subtitle}</p>
         </div>
         <HasPermission permission="packages:create">
-          <div className="flex gap-2">
-            <Button variant="outline" onClick={() => openMainPackageModal()} data-testid="button-add-category">
+          <div className="flex gap-2 flex-wrap w-full sm:w-auto min-w-0">
+            <Button variant="outline" onClick={() => openMainPackageModal()} data-testid="button-add-category" className="w-full sm:w-auto">
               <Plus className="h-4 w-4 me-2" />
               {t.addCategory}
             </Button>
-            <Button onClick={() => openSubPackageModal(mainPackages[0]?.id || "")} data-testid="button-add-package">
+            <Button onClick={() => openSubPackageModal(mainPackages[0]?.id || "")} data-testid="button-add-package" className="w-full sm:w-auto">
               <Plus className="h-4 w-4 me-2" />
               {t.addPackage}
             </Button>
@@ -1173,34 +1181,34 @@ export default function PackagesPage() {
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3 mb-6">
-        <Card>
+        <Card className="w-full min-w-0">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="p-3 rounded-lg bg-primary/10">
               <Layers className="h-5 w-5 text-primary" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm text-muted-foreground">{t.totalCategories}</p>
               <p className="text-2xl font-bold">{mainPackages.length}</p>
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="w-full min-w-0">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="p-3 rounded-lg bg-blue-100 dark:bg-blue-900/30">
               <Package className="h-5 w-5 text-blue-600 dark:text-blue-400" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm text-muted-foreground">{t.totalPackages}</p>
               <p className="text-2xl font-bold">{subPackages.length}</p>
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="w-full min-w-0">
           <CardContent className="p-4 flex items-center gap-4">
             <div className="p-3 rounded-lg bg-green-100 dark:bg-green-900/30">
               <Check className="h-5 w-5 text-green-600 dark:text-green-400" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-sm text-muted-foreground">{t.activePackages}</p>
               <p className="text-2xl font-bold">{activeSubPackagesCount}</p>
             </div>
@@ -1223,16 +1231,16 @@ export default function PackagesPage() {
                 open={isExpanded}
                 onOpenChange={() => toggleCategory(mainPkg.id)}
               >
-                <Card className={cn(!mainPkg.isActive && "opacity-60")} data-testid={`card-category-${mainPkg.id}`}>
+                <Card className={cn(!mainPkg.isActive && "opacity-60", "w-full min-w-0")} data-testid={`card-category-${mainPkg.id}`}>
                   <CollapsibleTrigger asChild>
                     <CardHeader className="cursor-pointer hover-elevate rounded-t-lg">
                       <div className="flex items-center justify-between gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className={cn("p-2.5 rounded-lg", colors.bg)}>
+                        <div className="flex items-center gap-3 flex-wrap min-w-0 flex-1">
+                          <div className={cn("p-2.5 rounded-lg shrink-0", colors.bg)}>
                             <Icon className={cn("h-5 w-5", colors.text)} />
                           </div>
-                          <div>
-                            <div className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <CardTitle className="text-lg" data-testid={`text-category-name-${mainPkg.id}`}>
                                 {language === "ar" ? mainPkg.name : (mainPkg.nameEn || mainPkg.name)}
                               </CardTitle>
@@ -1254,7 +1262,7 @@ export default function PackagesPage() {
                             </p>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap shrink-0">
                           <HasPermission permission="packages:edit">
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
@@ -1306,6 +1314,7 @@ export default function PackagesPage() {
                               variant="outline"
                               onClick={() => openSubPackageModal(mainPkg.id)}
                               data-testid={`button-add-package-to-${mainPkg.id}`}
+                              className="w-full sm:w-auto"
                             >
                               <Plus className="h-4 w-4 me-2" />
                               {t.addPackageToCategory}
@@ -1320,7 +1329,7 @@ export default function PackagesPage() {
                               <Card
                                 key={subPkg.id}
                                 className={cn(
-                                  "hover-elevate border",
+                                  "hover-elevate border w-full min-w-0",
                                   colors.border,
                                   !subPkg.isActive && "opacity-60"
                                 )}
@@ -1385,7 +1394,7 @@ export default function PackagesPage() {
                                   <div className="flex items-center justify-between mb-3">
                                     <span className="text-xl font-bold">
                                       {hasPermission("view_packages") ? formatCurrency(
-                                        convertAmount(subPkg.price, subPkg.currency as any, displayCurrency),
+                                        convertAmount(subPkg.price, subPkg.currency as Currency, displayCurrency),
                                         displayCurrency
                                       ) : "---"}
                                     </span>

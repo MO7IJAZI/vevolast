@@ -183,8 +183,12 @@ export function AddServiceModal({
       onOpenChange(false);
       resetForm();
     },
-    onError: (error: any) => {
-      toast({ title: content.error, description: error.message, variant: "destructive" });
+    onError: (error: unknown) => {
+      toast({
+        title: content.error,
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive"
+      });
     },
   });
 

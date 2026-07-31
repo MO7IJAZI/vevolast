@@ -9,6 +9,10 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Loader2, Mail, ArrowLeft, CheckCircle2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Error";
+}
+
 export default function ForgotPasswordPage() {
   const [, setLocation] = useLocation();
   const { language } = useLanguage();
@@ -52,9 +56,9 @@ export default function ForgotPasswordPage() {
     try {
       await apiRequest("POST", "/api/auth/forgot-password", { email });
       setIsSent(true);
-    } catch (err: any) {
+    } catch (err) {
       toast({
-        title: err.message || "Error",
+        title: getErrorMessage(err),
         variant: "destructive",
       });
     } finally {

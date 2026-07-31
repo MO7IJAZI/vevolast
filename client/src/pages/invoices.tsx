@@ -50,7 +50,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { HasPermission } from "@/components/permissions";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useLocation } from "wouter";
-import { useData, type Invoice, type Currency, type ServiceItem } from "@/contexts/DataContext";
+import { useData, type Invoice, type Currency, type ServiceItem, type InvoiceStatus } from "@/contexts/DataContext";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -59,6 +59,37 @@ import logoPath from "@assets/logo.png";
 import { ar, enUS } from "date-fns/locale";
 import { useEffect } from "react";
 import { safeJsonParse } from "@/utils/safeJson";
+
+type InvoiceItem = {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+};
+
+type InvoicePaymentMethod = "bank_transfer" | "cash" | "credit_card" | "paypal" | "wise" | "other";
+
+type InvoiceFormData = {
+  invoiceNumber: string;
+  clientId: string;
+  serviceId: string;
+  amount: string;
+  currency: Currency;
+  status: InvoiceStatus;
+  issueDate: string;
+  dueDate: string;
+  notes: string;
+  items: InvoiceItem[];
+};
+
+type InvoiceMutationPayload = Omit<InvoiceFormData, "amount"> & {
+  clientName: string;
+  amount: number;
+};
+
+type InvoiceUpdatePayload = Partial<InvoiceMutationPayload> & {
+  paidDate?: string;
+  paymentMethod?: InvoicePaymentMethod;
+};
 
 export default function InvoicesPage() {
   const { isAdmin } = useAuth();
@@ -70,9 +101,10 @@ export default function InvoicesPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<InvoiceStatus | "all">("all");
+  const [clientFilter, setClientFilter] = useState<string>("all");
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<InvoiceFormData>({
     invoiceNumber: "",
     clientId: "",
     serviceId: "",
@@ -82,7 +114,7 @@ export default function InvoicesPage() {
     issueDate: new Date().toISOString().split('T')[0],
     dueDate: new Date().toISOString().split('T')[0],
     notes: "",
-    items: [] as { description: string; quantity: number; unitPrice: number }[]
+    items: []
   });
 
   // Calculate total amount when items change
@@ -105,7 +137,7 @@ export default function InvoicesPage() {
     }));
   };
 
-  const handleItemChange = (index: number, field: string, value: any) => {
+  const handleItemChange = <K extends keyof InvoiceItem>(index: number, field: K, value: InvoiceItem[K]) => {
     setFormData(prev => {
       const newItems = [...prev.items];
       newItems[index] = { ...newItems[index], [field]: value };
@@ -127,22 +159,33 @@ export default function InvoicesPage() {
         invoice.clientName.toLowerCase().includes(searchQuery.toLowerCase());
       
       const matchesStatus = statusFilter === "all" || invoice.status === statusFilter;
+      const matchesClient = clientFilter === "all" || invoice.clientId === clientFilter;
       
-      return matchesSearch && matchesStatus;
+      return matchesSearch && matchesStatus && matchesClient;
     });
-  }, [invoices, searchQuery, statusFilter]);
+  }, [clientFilter, invoices, searchQuery, statusFilter]);
+
+  const invalidateFinanceQueries = () => {
+    queryClient.invalidateQueries({
+      predicate: (query) =>
+        Array.isArray(query.queryKey)
+        && typeof query.queryKey[0] === "string"
+        && (
+          query.queryKey[0] === "/api/client-payments"
+          || query.queryKey[0] === "/api/transactions"
+          || query.queryKey[0].startsWith("/api/finance-")
+        ),
+    });
+  };
 
   const createMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: InvoiceMutationPayload) => {
       const res = await apiRequest("POST", "/api/invoices", data);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      // Invalidate finance queries as invoice creation might affect totals if paid immediately
-      queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceQueries();
       
       setIsModalOpen(false);
       resetForm();
@@ -161,16 +204,13 @@ export default function InvoicesPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+    mutationFn: async ({ id, data }: { id: string; data: InvoiceUpdatePayload }) => {
       const res = await apiRequest("PATCH", `/api/invoices/${id}`, data);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      // Invalidate finance queries as updating invoice (e.g. marking as paid) affects totals
-      queryClient.invalidateQueries({ queryKey: ["/api/client-payments"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceQueries();
       
       setIsModalOpen(false);
       resetForm();
@@ -187,8 +227,7 @@ export default function InvoicesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      // Invalidate finance queries just in case (though currently delete doesn't cascade to payments)
-      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      invalidateFinanceQueries();
       
       toast({
         title: language === "ar" ? "تم بنجاح" : "Success",
@@ -318,7 +357,7 @@ export default function InvoicesPage() {
             </tr>
           </thead>
           <tbody>
-            ${(Array.isArray(invoice.items) ? invoice.items : []).map((item: any) => `
+            ${(Array.isArray(invoice.items) ? invoice.items : []).map((item: InvoiceItem) => `
               <tr>
                 <td>${item.description}</td>
                 <td>${item.quantity}</td>
@@ -353,7 +392,7 @@ export default function InvoicesPage() {
   const [invoiceToMarkPaid, setInvoiceToMarkPaid] = useState<Invoice | null>(null);
   const [markPaidData, setMarkPaidData] = useState({
     date: new Date().toISOString().split('T')[0],
-    method: "bank_transfer"
+    method: "bank_transfer" as InvoicePaymentMethod
   });
 
   const handleMarkPaidClick = (invoice: Invoice) => {
@@ -385,7 +424,9 @@ export default function InvoicesPage() {
       createInvoice: "إنشاء فاتورة",
       searchPlaceholder: "بحث برقم الفاتورة أو اسم العميل...",
       filterStatus: "تصفية حسب الحالة",
+      filterClient: "تصفية حسب العميل",
       allStatuses: "كل الحالات",
+      allClients: "كل العملاء",
       invoiceNumber: "رقم الفاتورة",
       client: "العميل",
       amount: "المبلغ",
@@ -435,7 +476,9 @@ export default function InvoicesPage() {
       createInvoice: "Create Invoice",
       searchPlaceholder: "Search by invoice # or client...",
       filterStatus: "Filter by Status",
+      filterClient: "Filter by Client",
       allStatuses: "All Statuses",
+      allClients: "All Clients",
       invoiceNumber: "Invoice #",
       client: "Client",
       amount: "Amount",
@@ -503,7 +546,7 @@ export default function InvoicesPage() {
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto space-y-6">
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold">{t.title}</h1>
           <p className="text-muted-foreground">
@@ -511,15 +554,15 @@ export default function InvoicesPage() {
           </p>
         </div>
         <HasPermission permission="finance:create">
-          <Button onClick={handleOpenModal}>
+          <Button onClick={handleOpenModal} className="w-full sm:w-auto">
             <Plus className="h-4 w-4 me-2" />
             {t.createInvoice}
           </Button>
         </HasPermission>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-card p-4 rounded-lg border shadow-sm">
-        <div className="relative w-full sm:w-96">
+      <div className="flex flex-col sm:flex-row gap-4 items-center justify-between bg-card p-4 rounded-lg border shadow-sm flex-wrap w-full min-w-0">
+        <div className="relative w-full sm:w-96 min-w-0">
           <Search className="absolute start-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={t.searchPlaceholder}
@@ -528,10 +571,11 @@ export default function InvoicesPage() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder={t.filterStatus} />
-          </SelectTrigger>
+        <div className="w-full sm:w-auto min-w-0">
+          <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as InvoiceStatus | "all")}>
+            <SelectTrigger className="w-full sm:w-[180px] min-w-0">
+              <SelectValue placeholder={t.filterStatus} />
+            </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t.allStatuses}</SelectItem>
             <SelectItem value="draft">{t.draft}</SelectItem>
@@ -541,8 +585,24 @@ export default function InvoicesPage() {
           </SelectContent>
         </Select>
       </div>
+        <div className="w-full sm:w-auto min-w-0">
+          <Select value={clientFilter} onValueChange={setClientFilter}>
+            <SelectTrigger className="w-full sm:w-[220px] min-w-0">
+              <SelectValue placeholder={t.filterClient} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t.allClients}</SelectItem>
+              {clients.map((client) => (
+                <SelectItem key={client.id} value={client.id}>
+                  {client.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
-      <Card>
+      <Card className="w-full min-w-0">
         <CardContent className="p-0">
           {invoices.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -551,87 +611,89 @@ export default function InvoicesPage() {
               </div>
               <h3 className="text-lg font-semibold mb-2">{t.noInvoices}</h3>
               <HasPermission permission="finance:create">
-                <Button variant="outline" onClick={handleOpenModal}>
+                <Button variant="outline" onClick={handleOpenModal} className="w-full sm:w-auto">
                   {t.createFirst}
                 </Button>
               </HasPermission>
             </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t.invoiceNumber}</TableHead>
-                  <TableHead>{t.client}</TableHead>
-                  <TableHead>{t.amount}</TableHead>
-                  <TableHead>{t.status}</TableHead>
-                  <TableHead>{t.issueDate}</TableHead>
-                  <TableHead>{t.dueDate}</TableHead>
-                  <TableHead className="text-end">{t.actions}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredInvoices.map((invoice) => (
-                  <TableRow key={invoice.id}>
-                    <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                    <TableCell>{invoice.clientName}</TableCell>
-                    <TableCell>
-                      {invoice.amount.toLocaleString()} {invoice.currency}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(invoice.status)}</TableCell>
-                    <TableCell>
-                      {format(new Date(invoice.issueDate), "dd MMM yyyy", { locale: language === "ar" ? ar : enUS })}
-                    </TableCell>
-                    <TableCell>
-                      {format(new Date(invoice.dueDate), "dd MMM yyyy", { locale: language === "ar" ? ar : enUS })}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-end gap-2">
-                        {invoice.status !== "paid" && (
-                          <HasPermission permission="finance:edit">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleMarkPaidClick(invoice)}
-                              title={t.markPaid}
-                            >
-                              <CheckCircle2 className="h-4 w-4 text-green-600" />
-                            </Button>
-                          </HasPermission>
-                        )}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon">
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <HasPermission permission="finance:edit">
-                              <DropdownMenuItem onClick={() => handleEdit(invoice)}>
-                                <Pencil className="h-4 w-4 me-2" />
-                                {t.edit}
-                              </DropdownMenuItem>
-                            </HasPermission>
-                            <DropdownMenuItem onClick={() => handleDownloadPDF(invoice)}>
-                              <Download className="h-4 w-4 me-2" />
-                              {t.download}
-                            </DropdownMenuItem>
-                            <HasPermission permission="finance:delete">
-                              <DropdownMenuItem
-                                className="text-destructive focus:text-destructive"
-                                onClick={() => deleteMutation.mutate(invoice.id)}
-                              >
-                                <Trash2 className="h-4 w-4 me-2" />
-                                {t.delete}
-                              </DropdownMenuItem>
-                            </HasPermission>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </TableCell>
+            <div className="w-full overflow-x-auto border rounded-xl">
+              <Table className="min-w-[700px]">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t.invoiceNumber}</TableHead>
+                    <TableHead>{t.client}</TableHead>
+                    <TableHead>{t.amount}</TableHead>
+                    <TableHead>{t.status}</TableHead>
+                    <TableHead>{t.issueDate}</TableHead>
+                    <TableHead>{t.dueDate}</TableHead>
+                    <TableHead className="text-end">{t.actions}</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {filteredInvoices.map((invoice) => (
+                    <TableRow key={invoice.id}>
+                      <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
+                      <TableCell>{invoice.clientName}</TableCell>
+                      <TableCell>
+                        {invoice.amount.toLocaleString()} {invoice.currency}
+                      </TableCell>
+                      <TableCell>{getStatusBadge(invoice.status)}</TableCell>
+                      <TableCell>
+                        {format(new Date(invoice.issueDate), "dd MMM yyyy", { locale: language === "ar" ? ar : enUS })}
+                      </TableCell>
+                      <TableCell>
+                        {format(new Date(invoice.dueDate), "dd MMM yyyy", { locale: language === "ar" ? ar : enUS })}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-2">
+                          {invoice.status !== "paid" && (
+                            <HasPermission permission="finance:edit">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleMarkPaidClick(invoice)}
+                                title={t.markPaid}
+                              >
+                                <CheckCircle2 className="h-4 w-4 text-green-600" />
+                              </Button>
+                            </HasPermission>
+                          )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon">
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <HasPermission permission="finance:edit">
+                                <DropdownMenuItem onClick={() => handleEdit(invoice)}>
+                                  <Pencil className="h-4 w-4 me-2" />
+                                  {t.edit}
+                                </DropdownMenuItem>
+                              </HasPermission>
+                              <DropdownMenuItem onClick={() => handleDownloadPDF(invoice)}>
+                                <Download className="h-4 w-4 me-2" />
+                                {t.download}
+                              </DropdownMenuItem>
+                              <HasPermission permission="finance:delete">
+                                <DropdownMenuItem
+                                  className="text-destructive focus:text-destructive"
+                                  onClick={() => deleteMutation.mutate(invoice.id)}
+                                >
+                                  <Trash2 className="h-4 w-4 me-2" />
+                                  {t.delete}
+                                </DropdownMenuItem>
+                              </HasPermission>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -661,7 +723,7 @@ export default function InvoicesPage() {
                   value={formData.clientId} 
                   onValueChange={(val) => setFormData({...formData, clientId: val, serviceId: ""})}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full min-w-0">
                     <SelectValue placeholder={t.selectClient} />
                   </SelectTrigger>
                   <SelectContent>
@@ -680,7 +742,7 @@ export default function InvoicesPage() {
                   onValueChange={(val) => setFormData({...formData, serviceId: val})}
                   disabled={!formData.clientId}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full min-w-0">
                     <SelectValue placeholder={t.selectService} />
                   </SelectTrigger>
                   <SelectContent>
@@ -703,7 +765,7 @@ export default function InvoicesPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <Label>{t.items}</Label>
-                <Button type="button" variant="outline" size="sm" onClick={handleAddItem}>
+                <Button type="button" variant="outline" size="sm" onClick={handleAddItem} className="w-full sm:w-auto">
                   <Plus className="h-4 w-4 me-2" />
                   {t.addItem}
                 </Button>
@@ -763,7 +825,7 @@ export default function InvoicesPage() {
                     value={formData.currency} 
                     onValueChange={(val) => setFormData({...formData, currency: val as Currency})}
                   >
-                    <SelectTrigger className="w-[100px]">
+                    <SelectTrigger className="w-full sm:w-[100px] min-w-0">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -803,9 +865,9 @@ export default function InvoicesPage() {
               <Label>{t.status}</Label>
               <Select 
                 value={formData.status} 
-                onValueChange={(val) => setFormData({...formData, status: val as any})}
+                  onValueChange={(val: InvoiceStatus) => setFormData({...formData, status: val})}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full min-w-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -825,11 +887,11 @@ export default function InvoicesPage() {
               />
             </div>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setIsModalOpen(false)}>
+          <div className="flex justify-end gap-2 flex-wrap w-full">
+            <Button variant="outline" onClick={() => setIsModalOpen(false)} className="w-full sm:w-auto">
               {t.cancel}
             </Button>
-            <Button onClick={handleSubmit}>
+            <Button onClick={handleSubmit} className="w-full sm:w-auto">
               {t.save}
             </Button>
           </div>
@@ -856,9 +918,9 @@ export default function InvoicesPage() {
               <Label>{t.paymentMethod}</Label>
               <Select
                 value={markPaidData.method}
-                onValueChange={(val) => setMarkPaidData({ ...markPaidData, method: val })}
+                onValueChange={(val) => setMarkPaidData({ ...markPaidData, method: val as InvoicePaymentMethod })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full min-w-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -871,11 +933,11 @@ export default function InvoicesPage() {
               </Select>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsMarkPaidModalOpen(false)}>
+          <DialogFooter className="flex flex-col sm:flex-row gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => setIsMarkPaidModalOpen(false)} className="w-full sm:w-auto">
               {t.cancel}
             </Button>
-            <Button onClick={confirmMarkPaid}>
+            <Button onClick={confirmMarkPaid} className="w-full sm:w-auto">
               {t.save}
             </Button>
           </DialogFooter>

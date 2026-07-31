@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import {
@@ -29,12 +29,26 @@ import { getExchangeRates, convertCurrency, refreshExchangeRates } from "./excha
 import { requireAdmin, requirePermission, requireAuth, requireAnyPermission } from "./auth";
 import { safeJsonParse } from "./utils/safeJson";
 
+type SessionSegment = {
+  type: "work" | "break";
+  startAt: string;
+  endAt?: string;
+  breakType?: "short" | "long" | "lunch" | "meeting" | "other";
+  note?: string;
+};
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  const respondWithFinanceError = (res: any, error: unknown, fallbackMessage: string) => {
-    const status = typeof (error as any)?.status === "number" ? Number((error as any).status) : 500;
+  const respondWithFinanceError = (res: Response, error: unknown, fallbackMessage: string) => {
+    const status =
+      typeof error === "object" &&
+      error !== null &&
+      "status" in error &&
+      typeof error.status === "number"
+        ? Number(error.status)
+        : 500;
     const message = error instanceof Error ? error.message : fallbackMessage;
     if (status >= 400 && status < 500) {
       return res.status(status).json({ error: message });
@@ -79,7 +93,7 @@ export async function registerRoutes(
   app.post("/api/goals", requirePermission("goals", "create"), async (req, res) => {
     try {
       const validated = goalFormSchema.parse(req.body);
-      const goal = await storage.createGoal(validated as any);
+      const goal = await storage.createGoal(validated);
       res.status(201).json(goal);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -94,7 +108,7 @@ export async function registerRoutes(
   app.patch("/api/goals/:id", requirePermission("goals", "edit"), async (req, res) => {
     try {
       const validated = goalFormSchema.partial().parse(req.body);
-      const goal = await storage.updateGoal(req.params.id, validated as any);
+      const goal = await storage.updateGoal(req.params.id, validated);
       if (!goal) {
         return res.status(404).json({ error: "Goal not found" });
       }
@@ -882,8 +896,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid payment data", details: error.errors });
       }
-      console.error("Error creating client payment:", error);
-      res.status(500).json({ error: "Failed to create client payment" });
+      return respondWithFinanceError(res, error, "Failed to create client payment");
     }
   });
 
@@ -900,8 +913,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid payment data", details: error.errors });
       }
-      console.error("Error updating client payment:", error);
-      res.status(500).json({ error: "Failed to update client payment" });
+      return respondWithFinanceError(res, error, "Failed to update client payment");
     }
   });
 
@@ -914,8 +926,7 @@ export async function registerRoutes(
       }
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting client payment:", error);
-      res.status(500).json({ error: "Failed to delete client payment" });
+      return respondWithFinanceError(res, error, "Failed to delete client payment");
     }
   });
 
@@ -1327,18 +1338,23 @@ export async function registerRoutes(
               name: user.name,
               nameEn: user.nameEn,
               email: user.email,
+              phone: null,
               profileImage: user.avatar,
-              role: "Admin", // Fallback role name since user.role is removed
+              roleId: user.roleId || "system-admin",
+              roleAr: "Admin",
               department: user.department || "admin",
               jobTitle: "admin",
               salaryType: "monthly",
               salaryAmount: 0,
+              rate: null,
+              rateType: null,
               salaryCurrency: "USD",
+              salaryNotes: null,
               isActive: user.isActive,
               startDate: user.createdAt?.toISOString().split('T')[0] || new Date().toISOString().split('T')[0],
               createdAt: user.createdAt,
               updatedAt: user.updatedAt,
-            } as any;
+            };
           }
         }
         
@@ -1424,11 +1440,11 @@ export async function registerRoutes(
       }
 
       const now = new Date().toISOString();
-      let segments: any[] = [];
+      let segments: SessionSegment[] = [];
       if (session.segments) {
         segments = Array.isArray(session.segments) 
           ? session.segments 
-          : safeJsonParse(session.segments as unknown as string, []);
+          : safeJsonParse<SessionSegment[]>(session.segments as unknown as string, []);
       }
       
       // End current work segment
@@ -1476,11 +1492,11 @@ export async function registerRoutes(
       }
 
       const now = new Date().toISOString();
-      let segments: any[] = [];
+      let segments: SessionSegment[] = [];
       if (session.segments) {
         segments = Array.isArray(session.segments) 
           ? session.segments 
-          : safeJsonParse(session.segments as unknown as string, []);
+          : safeJsonParse<SessionSegment[]>(session.segments as unknown as string, []);
       }
       
       // End current break segment
@@ -1520,11 +1536,11 @@ export async function registerRoutes(
       }
 
       const now = new Date().toISOString();
-      let segments: any[] = [];
+      let segments: SessionSegment[] = [];
       if (session.segments) {
         segments = Array.isArray(session.segments) 
           ? session.segments 
-          : safeJsonParse(session.segments as unknown as string, []);
+          : safeJsonParse<SessionSegment[]>(session.segments as unknown as string, []);
       }
       
       // End current segment (work or break)
@@ -1562,11 +1578,11 @@ export async function registerRoutes(
       }
 
       const now = new Date().toISOString();
-      let segments: any[] = [];
+      let segments: SessionSegment[] = [];
       if (session.segments) {
         segments = Array.isArray(session.segments) 
           ? session.segments 
-          : safeJsonParse(session.segments as unknown as string, []);
+          : safeJsonParse<SessionSegment[]>(session.segments as unknown as string, []);
       }
       
       // Start new work segment
@@ -1589,7 +1605,7 @@ export async function registerRoutes(
 }
 
 // Helper function to calculate work and break totals
-function calculateTotals(segments: any[]): { workSeconds: number; breakSeconds: number } {
+function calculateTotals(segments: SessionSegment[]): { workSeconds: number; breakSeconds: number } {
   let workSeconds = 0;
   let breakSeconds = 0;
   const now = new Date().getTime();

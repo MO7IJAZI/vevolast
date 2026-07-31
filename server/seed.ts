@@ -32,6 +32,31 @@ import crypto from "crypto";
 
 // ============ DATA DEFINITIONS ============
 
+type SeedEmployee = typeof employees.$inferInsert;
+type SeedLead = typeof leads.$inferInsert;
+type SeedInvoice = typeof invoices.$inferInsert;
+type SeedGoal = typeof goals.$inferInsert;
+type SeedClientPayment = typeof clientPayments.$inferInsert;
+type SeedPayrollPayment = typeof payrollPayments.$inferInsert;
+type SeedTransaction = typeof transactions.$inferInsert;
+type SeedWorkSession = typeof workSessions.$inferInsert;
+type SeedCalendarEvent = typeof calendarEvents.$inferInsert;
+type SeedClientService = {
+  id: string;
+  mainPackageId: string;
+  serviceName: string;
+  serviceNameEn?: string | null;
+  startDate: string;
+  dueDate?: string | null;
+  price?: number | null;
+  currency?: string | null;
+  status?: string | null;
+  serviceAssignees?: string[] | null;
+};
+type SeedClient = typeof clients.$inferInsert & {
+  services?: SeedClientService[];
+};
+
 const initialMainPackages = [
   {
     id: "main-pkg-1",
@@ -341,25 +366,25 @@ const initialSubPackages = [
   },
 ];
 
-const initialEmployees: any[] = [];
+const initialEmployees: SeedEmployee[] = [];
 
-const initialLeads: any[] = [];
+const initialLeads: SeedLead[] = [];
 
-const initialClients: any[] = [];
+const initialClients: SeedClient[] = [];
 
-const initialInvoices: any[] = [];
+const initialInvoices: SeedInvoice[] = [];
 
-const initialGoals: any[] = [];
+const initialGoals: SeedGoal[] = [];
 
-const initialClientPayments: any[] = [];
+const initialClientPayments: SeedClientPayment[] = [];
 
-const initialPayrollPayments: any[] = [];
+const initialPayrollPayments: SeedPayrollPayment[] = [];
 
-const initialTransactions: any[] = [];
+const initialTransactions: SeedTransaction[] = [];
 
-const initialWorkSessions: any[] = [];
+const initialWorkSessions: SeedWorkSession[] = [];
 
-const initialCalendarEvents: any[] = [];
+const initialCalendarEvents: SeedCalendarEvent[] = [];
 
 const initialSystemSettings = {
   id: "current",
@@ -544,20 +569,20 @@ async function seed() {
           await db.insert(clients).values({ ...clientFields, id: clientId });
 
           if (services && services.length > 0) {
-            const serviceInserts = services.map((s: { id: any; mainPackageId: any; serviceName: any; serviceNameEn: any; startDate: any; dueDate: any; price: any; currency: any; status: any; serviceAssignees: any; }) => ({
-              id: s.id,
+            const serviceInserts = services.map((s) => ({
+              id: s.id ?? crypto.randomUUID(),
               clientId,
               mainPackageId: s.mainPackageId,
               subPackageId: null,
               serviceName: s.serviceName,
               serviceNameEn: s.serviceNameEn || s.serviceName,
               startDate: s.startDate,
-              endDate: s.dueDate,
-              price: s.price,
-              currency: s.currency,
-              status: s.status,
-              executionEmployeeIds: s.serviceAssignees,
-              salesEmployeeId: clientFields.salesOwnerId,
+              endDate: s.dueDate || null,
+              price: s.price ?? null,
+              currency: s.currency || null,
+              status: s.status || "not_started",
+              executionEmployeeIds: s.serviceAssignees || [],
+              salesEmployeeId: clientFields.salesOwnerId || null,
             }));
             await db.insert(clientServices).values(serviceInserts);
           }

@@ -22,11 +22,12 @@ async function runMySQLMigration() {
     for (const statement of statements) {
       try {
         await db.execute(statement);
-      } catch (error: any) {
-        if (error.code === "ER_TABLE_EXISTS_ERROR") {
+      } catch (error) {
+        const dbError = error as { code?: string; message?: string };
+        if (dbError.code === "ER_TABLE_EXISTS_ERROR") {
           console.log("  - Table already exists, skipping...");
         } else {
-          console.log(`  - Statement result: ${error.message || "OK"}`);
+          console.log(`  - Statement result: ${dbError.message || "OK"}`);
         }
       }
     }

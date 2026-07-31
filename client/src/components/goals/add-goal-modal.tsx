@@ -47,6 +47,8 @@ import {
   type GoalFormData,
   type GoalType,
   type Goal,
+  type GoalStatus,
+  type Currency,
 } from "@shared/schema";
 import { cn } from "@/lib/utils";
 
@@ -78,6 +80,9 @@ const goalStatuses = [
   { value: "achieved", labelKey: "status.achieved" },
   { value: "failed", labelKey: "status.failed" },
 ];
+
+const supportedCurrencies = new Set<Currency>(["TRY", "USD", "EUR", "SAR", "AED", "EGP"]);
+const supportedGoalStatuses = new Set<GoalStatus>(["not_started", "in_progress", "achieved", "failed"]);
 
 interface AddGoalModalProps {
   open: boolean;
@@ -127,10 +132,14 @@ export function AddGoalModal({
         year: editingGoal.year,
         target: editingGoal.target,
         current: editingGoal.current || 0,
-        currency: editingGoal.currency as any,
+        currency: editingGoal.currency && supportedCurrencies.has(editingGoal.currency as Currency)
+          ? (editingGoal.currency as Currency)
+          : null,
         icon: editingGoal.icon || undefined,
         notes: editingGoal.notes || "",
-        status: editingGoal.status as any,
+        status: editingGoal.status && supportedGoalStatuses.has(editingGoal.status as GoalStatus)
+          ? (editingGoal.status as GoalStatus)
+          : "not_started",
         responsiblePerson: editingGoal.responsiblePerson || "",
         country: editingGoal.country || "",
       });
@@ -154,7 +163,7 @@ export function AddGoalModal({
 
   const watchedType = form.watch("type") as GoalType;
   const typeConfig = goalTypeConfigs[watchedType];
-  const selectedIcon = form.watch("icon");
+  const selectedIcon = typeof form.watch("icon") === "string" ? form.watch("icon") : undefined;
 
   const handleSubmit = (data: GoalFormData) => {
     onSubmit(data);
@@ -187,7 +196,10 @@ export function AddGoalModal({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("form.goalType")}</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={typeof field.value === "string" ? field.value : undefined}
+                  >
                     <FormControl>
                       <SelectTrigger data-testid="select-goal-type">
                         <SelectValue placeholder={t("form.selectType")} />
@@ -213,7 +225,13 @@ export function AddGoalModal({
                 <FormItem>
                   <FormLabel>{t("form.goalName")}</FormLabel>
                   <FormControl>
-                    <Input {...field} data-testid="input-goal-name" />
+                    <Input
+                      name={field.name}
+                      value={typeof field.value === "string" ? field.value : ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
+                      data-testid="input-goal-name"
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -233,7 +251,9 @@ export function AddGoalModal({
                     <FormControl>
                       <Input
                         type="number"
-                        {...field}
+                        name={field.name}
+                        value={typeof field.value === "number" ? field.value : 0}
+                        onBlur={field.onBlur}
                         onChange={(e) => field.onChange(Number(e.target.value))}
                         data-testid="input-target"
                       />
@@ -255,7 +275,9 @@ export function AddGoalModal({
                     <FormControl>
                       <Input
                         type="number"
-                        {...field}
+                        name={field.name}
+                        value={typeof field.value === "number" ? field.value : 0}
+                        onBlur={field.onBlur}
                         onChange={(e) => field.onChange(Number(e.target.value))}
                         data-testid="input-current"
                       />
@@ -273,7 +295,10 @@ export function AddGoalModal({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("form.currency")}</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value || ""}>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={typeof field.value === "string" ? field.value : undefined}
+                    >
                       <FormControl>
                         <SelectTrigger data-testid="select-currency">
                           <SelectValue placeholder={t("form.selectCurrency")} />
@@ -301,7 +326,13 @@ export function AddGoalModal({
                   <FormItem>
                     <FormLabel>{t("form.country")} {t("form.optional")}</FormLabel>
                     <FormControl>
-                      <Input {...field} value={field.value || ""} data-testid="input-country" />
+                      <Input
+                        name={field.name}
+                        value={typeof field.value === "string" ? field.value : ""}
+                        onBlur={field.onBlur}
+                        onChange={field.onChange}
+                        data-testid="input-country"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -315,7 +346,10 @@ export function AddGoalModal({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("form.status")}</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={typeof field.value === "string" ? field.value : undefined}
+                  >
                     <FormControl>
                       <SelectTrigger data-testid="select-status">
                         <SelectValue placeholder={t("form.selectStatus")} />
@@ -374,7 +408,13 @@ export function AddGoalModal({
                 <FormItem>
                   <FormLabel>{t("form.responsiblePerson")} {t("form.optional")}</FormLabel>
                   <FormControl>
-                    <Input {...field} value={field.value || ""} data-testid="input-responsible" />
+                      <Input
+                        name={field.name}
+                        value={typeof field.value === "string" ? field.value : ""}
+                        onBlur={field.onBlur}
+                        onChange={field.onChange}
+                        data-testid="input-responsible"
+                      />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -389,8 +429,10 @@ export function AddGoalModal({
                   <FormLabel>{t("form.notes")} {t("form.optional")}</FormLabel>
                   <FormControl>
                     <Textarea
-                      {...field}
-                      value={field.value || ""}
+                      name={field.name}
+                      value={typeof field.value === "string" ? field.value : ""}
+                      onBlur={field.onBlur}
+                      onChange={field.onChange}
                       className="resize-none"
                       rows={3}
                       data-testid="textarea-notes"

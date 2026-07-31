@@ -2,7 +2,7 @@
  * Safe JSON parsing utilities
  */
 
-export function safeJsonParse<T = any>(jsonString: string, defaultValue: T): T {
+export function safeJsonParse<T = unknown>(jsonString: string, defaultValue: T): T {
   try {
     if (!jsonString || typeof jsonString !== 'string') {
       return defaultValue;
@@ -14,14 +14,14 @@ export function safeJsonParse<T = any>(jsonString: string, defaultValue: T): T {
   }
 }
 
-export function safeJsonParseNullable<T = any>(jsonString: string | null | undefined, defaultValue: T): T {
+export function safeJsonParseNullable<T = unknown>(jsonString: string | null | undefined, defaultValue: T): T {
   if (!jsonString) {
     return defaultValue;
   }
   return safeJsonParse(jsonString, defaultValue);
 }
 
-export function safeJsonStringify(obj: any): string {
+export function safeJsonStringify(obj: unknown): string {
   try {
     return JSON.stringify(obj);
   } catch (error) {

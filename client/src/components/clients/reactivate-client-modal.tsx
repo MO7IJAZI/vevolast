@@ -162,7 +162,7 @@ export function ReactivateClientModal({ open, onOpenChange, client }: Reactivate
     setServices(prev => prev.map(s => ({ ...s, active: !allActive })));
   };
 
-  const updateService = (index: number, field: keyof EditableService, value: any) => {
+  const updateService = <K extends keyof EditableService>(index: number, field: K, value: EditableService[K]) => {
     setServices(prev => prev.map((s, i) => i === index ? { ...s, [field]: value } : s));
   };
 
@@ -231,10 +231,17 @@ export function ReactivateClientModal({ open, onOpenChange, client }: Reactivate
       queryClient.invalidateQueries({ queryKey: ["/api/work-tracking/stats/summary"] });
       queryClient.invalidateQueries({ queryKey: ["/api/client-services"] });
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-client-report"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/finance-ledger"] });
       toast({ title: content.success, description: `${successCount} ${language === "ar" ? "خدمة" : "services"} reactivated` });
       onOpenChange(false);
-    } catch (error: any) {
-      toast({ title: content.error, description: error?.message, variant: "destructive" });
+    } catch (error) {
+      toast({
+        title: content.error,
+        description: error instanceof Error ? error.message : undefined,
+        variant: "destructive"
+      });
     } finally {
       setSaving(false);
     }

@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import type SMTPTransport from "nodemailer/lib/smtp-transport";
 
 const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || "587");
@@ -10,7 +11,40 @@ const APP_URL = process.env.REPL_SLUG
   ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER?.toLowerCase()}.repl.co`
   : process.env.APP_URL || "http://localhost:5000";
 
-let transporter: nodemailer.Transporter | null = null;
+let transporter: nodemailer.Transporter<SMTPTransport.SentMessageInfo> | null = null;
+
+function getMailErrorCode(error: unknown): string | number | undefined {
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  const record = error as { code?: string; errno?: string | number; responseCode?: number };
+  return record.code || record.errno || record.responseCode;
+}
+
+function getMailErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+const transporterOptions: SMTPTransport.Options = {
+  host: SMTP_HOST,
+  port: SMTP_PORT,
+  secure: SMTP_PORT === 465,
+  requireTLS: SMTP_PORT === 587,
+  connectionTimeout: 15000,
+  greetingTimeout: 15000,
+  socketTimeout: 30000,
+  tls: {
+    rejectUnauthorized: false,
+  },
+  auth: {
+    user: SMTP_USER,
+    pass: SMTP_PASS,
+  },
+};
 
 export async function initializeEmailTransporter() {
   if (!SMTP_USER || !SMTP_PASS) {
@@ -19,23 +53,7 @@ export async function initializeEmailTransporter() {
   }
 
   try {
-    transporter = nodemailer.createTransport({
-      host: SMTP_HOST,
-      port: SMTP_PORT,
-      secure: SMTP_PORT === 465,
-      requireTLS: SMTP_PORT === 587,
-      pool: false, // disable pool to avoid connection reuse issues on shared hosting
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
-      socketTimeout: 30000,
-      tls: {
-        rejectUnauthorized: false,
-      },
-      auth: {
-        user: SMTP_USER,
-        pass: SMTP_PASS,
-      },
-    } as any);
+    transporter = nodemailer.createTransport(transporterOptions);
 
     // Attempt verification but DON'T block email sending on it
     transporter.verify((error) => {
@@ -96,10 +114,10 @@ export async function sendEmail(
       });
       console.log(`✅ Email successfully sent to: ${to}`);
       return true;
-    } catch (error: any) {
-      const code = error?.code || error?.errno || error?.responseCode;
-      const isTransient = transientCodes.has(code) || typeof code === "number";
-      console.error(`❌ Email attempt ${attempt} failed:`, error.message, `(code: ${code})`);
+    } catch (error) {
+      const code = getMailErrorCode(error);
+      const isTransient = (typeof code === "string" && transientCodes.has(code)) || typeof code === "number";
+      console.error(`❌ Email attempt ${attempt} failed:`, getMailErrorMessage(error), `(code: ${code})`);
 
       if (attempt < 3 && isTransient) {
         const delay = 1000 * Math.pow(2, attempt - 1);

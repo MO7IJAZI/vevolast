@@ -52,7 +52,11 @@ export function comparePassword(password: string, hash: string): Promise<boolean
   return bcrypt.compare(password, hash);
 }
 
-function normalizePermissions(input: any): string[] {
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function normalizePermissions(input: unknown): string[] {
   if (!input) return [];
   if (Array.isArray(input)) {
     return Array.from(new Set(input.filter((p) => typeof p === "string")));
@@ -694,8 +698,8 @@ export function registerAuthRoutes(app: Express) {
 
       try {
         await db.insert(invitations).values(invitationPayload);
-      } catch (insertError: any) {
-        const insertMessage = String(insertError?.message || insertError || "");
+      } catch (insertError) {
+        const insertMessage = getErrorMessage(insertError);
         const missingProfileImageColumn =
           insertMessage.includes("profile_image")
           && (
@@ -995,7 +999,7 @@ export function registerAuthRoutes(app: Express) {
   app.patch("/api/auth/profile", requireAuth, async (req, res) => {
     try {
       const { nameEn, avatar } = req.body;
-      const updateData: any = {};
+      const updateData: { nameEn?: string | null; avatar?: string | null } = {};
       
       if (nameEn !== undefined) updateData.nameEn = nameEn;
       if (avatar !== undefined) updateData.avatar = avatar;

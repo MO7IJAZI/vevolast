@@ -27,6 +27,43 @@ import { apiRequest } from "@/lib/queryClient";
 import { ALL_PERMISSIONS, type Role } from "@shared/schema";
 import { resourceTranslations, actionTranslations } from "@/lib/permission-translations";
 
+type RoleMutationData = {
+  name: string;
+  nameAr: string;
+  description: string;
+  permissions: string[];
+};
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unexpected error";
+}
+
+function normalizePermissions(input: unknown): string[] {
+  if (!input) return [];
+  if (Array.isArray(input)) {
+    return Array.from(new Set(input.filter((p): p is string => typeof p === "string")));
+  }
+  if (typeof input === "string") {
+    try {
+      return normalizePermissions(JSON.parse(input));
+    } catch {
+      return [];
+    }
+  }
+  if (typeof input === "object") {
+    const out: string[] = [];
+    for (const [resource, actions] of Object.entries(input)) {
+      if (Array.isArray(actions)) {
+        for (const action of actions) {
+          if (typeof action === "string") out.push(`${resource}:${action}`);
+        }
+      }
+    }
+    return Array.from(new Set(out));
+  }
+  return [];
+}
+
 export default function RolesPage() {
   const { language } = useLanguage();
   const { toast } = useToast();
@@ -43,7 +80,7 @@ export default function RolesPage() {
   });
 
   const createRoleMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: RoleMutationData) => {
       const res = await apiRequest("POST", "/api/roles", data);
       return res.json();
     },
@@ -52,17 +89,17 @@ export default function RolesPage() {
       setIsDialogOpen(false);
       toast({ title: language === "ar" ? "تم إنشاء الدور بنجاح" : "Role created successfully" });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({ 
         title: language === "ar" ? "خطأ" : "Error",
-        description: error.message,
+        description: getErrorMessage(error),
         variant: "destructive" 
       });
     },
   });
 
   const updateRoleMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+    mutationFn: async ({ id, data }: { id: string; data: RoleMutationData }) => {
       const res = await apiRequest("PUT", `/api/roles/${id}`, data);
       return res.json();
     },
@@ -72,10 +109,10 @@ export default function RolesPage() {
       setEditingRole(null);
       toast({ title: language === "ar" ? "تم تحديث الدور بنجاح" : "Role updated successfully" });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({ 
         title: language === "ar" ? "خطأ" : "Error",
-        description: error.message,
+        description: getErrorMessage(error),
         variant: "destructive" 
       });
     },
@@ -89,10 +126,10 @@ export default function RolesPage() {
       queryClient.invalidateQueries({ queryKey: ["roles"] });
       toast({ title: language === "ar" ? "تم حذف الدور بنجاح" : "Role deleted successfully" });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
       toast({ 
         title: language === "ar" ? "خطأ" : "Error",
-        description: error.message,
+        description: getErrorMessage(error),
         variant: "destructive" 
       });
     },
@@ -212,35 +249,9 @@ function RoleDialog({
   open: boolean; 
   onOpenChange: (open: boolean) => void;
   initialData: Role | null;
-  onSubmit: (data: any) => void;
+  onSubmit: (data: RoleMutationData) => void;
 }) {
   const { language } = useLanguage();
-  const normalizePermissions = (input: any): string[] => {
-    if (!input) return [];
-    if (Array.isArray(input)) {
-      return Array.from(new Set(input.filter((p) => typeof p === "string")));
-    }
-    if (typeof input === "string") {
-      try {
-        const parsed = JSON.parse(input);
-        return normalizePermissions(parsed);
-      } catch {
-        return [];
-      }
-    }
-    if (typeof input === "object") {
-      const out: string[] = [];
-      for (const [resource, actions] of Object.entries(input)) {
-        if (Array.isArray(actions)) {
-          for (const a of actions) {
-            if (typeof a === "string") out.push(`${resource}:${a}`);
-          }
-        }
-      }
-      return Array.from(new Set(out));
-    }
-    return [];
-  };
   const [formData, setFormData] = useState({
     name: "",
     nameAr: "",
@@ -272,7 +283,7 @@ function RoleDialog({
   const togglePermission = (resource: string, action: string) => {
     const permission = `${resource}:${action}`;
     setFormData(prev => {
-      const current = Array.isArray(prev.permissions) ? prev.permissions : normalizePermissions(prev.permissions as any);
+      const current = normalizePermissions(prev.permissions);
       const exists = current.includes(permission);
       if (exists) {
         return { ...prev, permissions: current.filter(p => p !== permission) };
@@ -283,11 +294,11 @@ function RoleDialog({
   };
 
   const toggleAllResource = (resource: string, actions: readonly string[]) => {
-    const current = Array.isArray(formData.permissions) ? formData.permissions : normalizePermissions(formData.permissions as any);
+    const current = normalizePermissions(formData.permissions);
     const allSelected = actions.every(action => current.includes(`${resource}:${action}`));
     
     setFormData(prev => {
-      const base = Array.isArray(prev.permissions) ? prev.permissions : normalizePermissions(prev.permissions as any);
+      const base = normalizePermissions(prev.permissions);
       let newPermissions = [...base];
       if (allSelected) {
         // Remove all

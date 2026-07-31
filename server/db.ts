@@ -1,4 +1,4 @@
-import { createPool } from "mysql2/promise";
+import { createPool, type PoolOptions } from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
 import * as schema from "../shared/schema.js";
 
@@ -7,7 +7,7 @@ if (!process.env.DATABASE_URL && !process.env.DB_HOST) {
 }
 
 // Support both connection string and individual parameters
-let poolConfig: any;
+let poolConfig: PoolOptions;
 
 if (process.env.DATABASE_URL) {
   try {

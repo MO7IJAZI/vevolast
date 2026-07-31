@@ -5,6 +5,8 @@ import { clientServices, serviceDeliverables, serviceReports, workActivityLogs, 
 import { eq, and, inArray, desc, sql } from "drizzle-orm";
 import { requireAuth, requirePermission, requireAnyPermission } from "./auth.js";
 
+type InsertServiceDeliverable = typeof serviceDeliverables.$inferInsert;
+
 export function registerWorkTrackingRoutes(app: Express) {
   // Get all client services with deliverables
   app.get("/api/work-tracking", requireAnyPermission(["work_tracking:view", "clients:view"]), async (req, res) => {
@@ -137,8 +139,13 @@ export function registerWorkTrackingRoutes(app: Express) {
       
       // Insert deliverables if provided
       if (deliverablesList && deliverablesList.length > 0) {
-        const deliverablesToInsert = deliverablesList.map((d: any) => ({
-          ...d,
+        const deliverablesToInsert = (deliverablesList as Partial<InsertServiceDeliverable>[]).map((d) => ({
+          key: d.key ?? "",
+          labelAr: d.labelAr ?? "",
+          labelEn: d.labelEn ?? d.labelAr ?? "",
+          target: d.target ?? 0,
+          completed: d.completed ?? 0,
+          isBoolean: d.isBoolean ?? false,
           id: randomUUID(),
           serviceId: newService.id,
         }));

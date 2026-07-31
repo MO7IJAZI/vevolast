@@ -117,10 +117,29 @@ interface FinanceClientReportItem {
   expectedMonthly: number;
   expectedOneTime: number;
   paidThisPeriod: number;
+  paidOverall: number;
   oneTimePaidThisPeriod: number;
+  unallocatedPaidThisPeriod: number;
+  unallocatedPaidOverall: number;
   due: number;
+  totalOutstanding: number;
   isOverdue: boolean;
   payments: ClientPayment[];
+  services: {
+    serviceId: string;
+    serviceName: string;
+    serviceNameEn: string | null;
+    status: string;
+    billingType: string;
+    amount: number;
+    currency: string;
+    convertedAmount: number;
+    paidThisPeriod: number;
+    paidOverall: number;
+    remaining: number;
+    isCompleted: boolean;
+    isSettled: boolean;
+  }[];
 }
 
 interface CalendarEventFilters {
@@ -137,6 +156,43 @@ interface NotificationFilters {
   status?: string;
   startDate?: string;
   endDate?: string;
+}
+
+interface FinanceExecutor {
+  select: typeof db.select;
+  insert: typeof db.insert;
+  update: typeof db.update;
+  delete: typeof db.delete;
+}
+
+interface ServiceDeliverableSnapshot {
+  key: string;
+  label: string;
+  labelAr: string;
+  labelEn: string;
+  target: number;
+  completed: number;
+  isBoolean: boolean;
+  icon?: string | null;
+}
+
+interface DeliverableDefinition {
+  key?: string;
+  label?: string;
+  labelAr?: string;
+  labelEn?: string;
+  value?: string | number;
+  target?: number;
+  completed?: number;
+  done?: number;
+  total?: number;
+  isBoolean?: boolean;
+  icon?: string | null;
+}
+
+interface PreservedClientData {
+  client: Partial<Client>;
+  services: Partial<ClientService>[];
 }
 
 interface WorkSessionFilters {
@@ -239,10 +295,10 @@ export interface IStorage {
   createClientWithService(client: InsertClient, service: Omit<InsertClientService, "clientId">): Promise<{ client: Client, service: ClientService }>;
 
   // Client Services
-  getClientServices(clientId?: string): Promise<(ClientService & { deliverables: any[] })[]>;
+  getClientServices(clientId?: string): Promise<(ClientService & { deliverables: ServiceDeliverableSnapshot[] })[]>;
   createClientService(service: InsertClientService): Promise<ClientService>;
   updateClientService(id: string, service: Partial<InsertClientService>): Promise<ClientService | undefined>;
-  updateServiceDeliverables(serviceId: string, deliverables: any[]): Promise<void>;
+  updateServiceDeliverables(serviceId: string, deliverables: ServiceDeliverableSnapshot[]): Promise<void>;
   deleteClientService(id: string): Promise<boolean>;
 
   // Main Packages
@@ -273,7 +329,7 @@ export interface IStorage {
 
   // System Settings
   getSystemSettings(): Promise<SystemSettings | undefined>;
-  updateSystemSettings(settings: any): Promise<SystemSettings>;
+  updateSystemSettings(settings: InsertSystemSettings["settings"]): Promise<SystemSettings>;
 
   // Leads
   getLeads(): Promise<Lead[]>;
@@ -287,6 +343,109 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   private isMirroredFinanceTransaction(relatedType?: string | null): boolean {
     return relatedType === "client_payment" || relatedType === "payroll_payment";
+  }
+
+  private toStringArray(value: unknown): string[] {
+    if (Array.isArray(value)) {
+      return value.filter((item): item is string => typeof item === "string");
+    }
+    return [];
+  }
+
+  private toDeliverableDefinitions(value: unknown): DeliverableDefinition[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value.filter((item): item is DeliverableDefinition => typeof item === "object" && item !== null);
+  }
+
+  private getDeliverableTarget(deliverable: DeliverableDefinition): number {
+    if (typeof deliverable.target === "number") {
+      return deliverable.target;
+    }
+    if (deliverable.value !== undefined && !Number.isNaN(Number(deliverable.value))) {
+      return Number(deliverable.value);
+    }
+    return deliverable.isBoolean ? 1 : 0;
+  }
+
+  private getInvoicePaymentMarker(invoiceId: string): string {
+    return `[invoice:${invoiceId}]`;
+  }
+
+  private getInvoicePaymentDescription(invoice: Invoice): string {
+    return `${this.getInvoicePaymentMarker(invoice.id)} Payment for Invoice #${invoice.invoiceNumber}`;
+  }
+
+  private isInvoiceManagedClientPayment(payment: Pick<ClientPayment, "notes"> | Pick<InsertClientPayment, "notes">): boolean {
+    return typeof payment.notes === "string" && /\[invoice:[^\]]+\]/.test(payment.notes);
+  }
+
+  private getClientPaymentLockReason(payment: Pick<ClientPayment, "notes"> | Pick<InsertClientPayment, "notes">): string | null {
+    return this.isInvoiceManagedClientPayment(payment)
+      ? "This payment is generated from an invoice. Edit the invoice instead."
+      : null;
+  }
+
+  private assertAllowedManualClientPayment(payment: Pick<InsertClientPayment, "notes">): void {
+    if (this.isInvoiceManagedClientPayment(payment)) {
+      throw new FinanceMutationError("Invoice payment markers are reserved for system-generated invoice payments.", 409);
+    }
+  }
+
+  private async findInvoicePaymentByInvoiceId(executor: FinanceExecutor, invoiceId: string): Promise<ClientPayment | undefined> {
+    const marker = `%${this.getInvoicePaymentMarker(invoiceId)}%`;
+    const result = await executor
+      .select()
+      .from(clientPayments)
+      .where(sql`${clientPayments.notes} LIKE ${marker}`);
+    return result[0];
+  }
+
+  private async syncInvoicePayment(executor: FinanceExecutor, invoice: Invoice): Promise<void> {
+    const existingPayment = await this.findInvoicePaymentByInvoiceId(executor, invoice.id);
+
+    if (invoice.status !== "paid") {
+      if (existingPayment) {
+        await executor.delete(transactions).where(
+          and(eq(transactions.relatedType, "client_payment"), eq(transactions.relatedId, existingPayment.id))
+        );
+        await executor.delete(clientPayments).where(eq(clientPayments.id, existingPayment.id));
+      }
+      return;
+    }
+
+    const paymentDate = invoice.paidDate || new Date().toISOString().split("T")[0];
+    const paymentDateObj = new Date(paymentDate);
+    const paymentPayload: InsertClientPayment = {
+      clientId: invoice.clientId,
+      serviceId: invoice.serviceId || null,
+      amount: invoice.amount,
+      currency: invoice.currency,
+      paymentDate,
+      month: paymentDateObj.getMonth() + 1,
+      year: paymentDateObj.getFullYear(),
+      paymentMethod: invoice.paymentMethod || "bank_transfer",
+      notes: this.getInvoicePaymentDescription(invoice),
+    };
+
+    if (existingPayment) {
+      await executor.update(clientPayments).set(paymentPayload).where(eq(clientPayments.id, existingPayment.id));
+      const updatedRows = await executor.select().from(clientPayments).where(eq(clientPayments.id, existingPayment.id));
+      const updatedPayment = updatedRows[0];
+      if (updatedPayment) {
+        await this.upsertClientPaymentTransaction(executor, updatedPayment);
+      }
+      return;
+    }
+
+    const paymentId = randomUUID();
+    await executor.insert(clientPayments).values({ ...paymentPayload, id: paymentId });
+    const createdRows = await executor.select().from(clientPayments).where(eq(clientPayments.id, paymentId));
+    const createdPayment = createdRows[0];
+    if (createdPayment) {
+      await this.upsertClientPaymentTransaction(executor, createdPayment);
+    }
   }
 
   private isSystemManagedFinanceTransaction(relatedType?: string | null): boolean {
@@ -320,7 +479,7 @@ export class DatabaseStorage implements IStorage {
     return `Salary payment - ${payment.period}`;
   }
 
-  private async getTransactionOrThrow(executor: any, id: string): Promise<Transaction> {
+  private async getTransactionOrThrow(executor: FinanceExecutor, id: string): Promise<Transaction> {
     const result = await executor.select().from(transactions).where(eq(transactions.id, id));
     const existing = result[0];
     if (!existing) {
@@ -329,7 +488,7 @@ export class DatabaseStorage implements IStorage {
     return existing;
   }
 
-  private async assertEditableTransaction(executor: any, id: string): Promise<Transaction> {
+  private async assertEditableTransaction(executor: FinanceExecutor, id: string): Promise<Transaction> {
     const existing = await this.getTransactionOrThrow(executor, id);
     if (this.isSystemManagedFinanceTransaction(existing.relatedType)) {
       throw new FinanceMutationError(this.getManagedTransactionLockReason(existing.relatedType) || "This transaction is system-managed.", 409);
@@ -337,7 +496,7 @@ export class DatabaseStorage implements IStorage {
     return existing;
   }
 
-  private async upsertClientPaymentTransaction(executor: any, payment: ClientPayment): Promise<void> {
+  private async upsertClientPaymentTransaction(executor: FinanceExecutor, payment: ClientPayment): Promise<void> {
     const payload = {
       description: this.getClientPaymentTransactionDescription(payment),
       amount: payment.amount,
@@ -369,7 +528,7 @@ export class DatabaseStorage implements IStorage {
     await executor.insert(transactions).values({ ...payload, id: randomUUID() });
   }
 
-  private async upsertPayrollPaymentTransaction(executor: any, payment: PayrollPayment): Promise<void> {
+  private async upsertPayrollPaymentTransaction(executor: FinanceExecutor, payment: PayrollPayment): Promise<void> {
     const payload = {
       type: "expense",
       category: "salaries",
@@ -403,6 +562,10 @@ export class DatabaseStorage implements IStorage {
 
   private roundFinanceAmount(value: number): number {
     return Math.round(value * 100) / 100;
+  }
+
+  private isCashIncomeEntry(entry: Pick<FinanceLedgerEntry, "type" | "source">): boolean {
+    return entry.type === "income" && entry.source !== "service_completion";
   }
 
   private getFinanceCategoryLabels(category: string): { label: string; labelAr: string } {
@@ -467,6 +630,23 @@ export class DatabaseStorage implements IStorage {
     );
   }
 
+  private isServiceActiveForRecurringCharge(service: ClientService, month?: number, year?: number): boolean {
+    if (!month || !year) {
+      return service.status !== "completed";
+    }
+
+    const periodStart = new Date(year, month - 1, 1);
+    const periodEnd = new Date(year, month, 0, 23, 59, 59, 999);
+    const serviceStart = this.parseFinanceDate(service.startDate);
+    const serviceEnd = service.completedAt
+      ? new Date(service.completedAt)
+      : service.endDate
+        ? this.parseFinanceDate(service.endDate)
+        : null;
+
+    return serviceStart <= periodEnd && (!serviceEnd || serviceEnd >= periodStart);
+  }
+
   private async buildFinanceLedger(params: FinanceLedgerParams): Promise<FinanceLedgerEntry[]> {
     const { month, year, displayCurrency } = params;
     const [allTransactions, allClientPayments, allPayrollPayments] = await Promise.all([
@@ -508,30 +688,33 @@ export class DatabaseStorage implements IStorage {
     );
 
     const clientPaymentEntries = await Promise.all(
-      allClientPayments.map(async (payment) => ({
-        id: `client_payment:${payment.id}`,
-        recordId: payment.id,
-        source: "client_payment",
-        type: "income",
-        category: "client_payment",
-        description: this.getClientPaymentTransactionDescription(payment),
-        amount: payment.amount,
-        currency: payment.currency,
-        convertedAmount: this.roundFinanceAmount(await convertCurrency(payment.amount, payment.currency, displayCurrency)),
-        date: payment.paymentDate,
-        relatedId: payment.id,
-        relatedType: "client_payment",
-        status: "completed",
-        notes: payment.notes || null,
-        clientId: payment.clientId,
-        serviceId: payment.serviceId || null,
-        employeeId: null,
-        isSystemManaged: true,
-        canEdit: true,
-        canDelete: true,
-        lockedReason: null,
-        displayCurrency,
-      } satisfies FinanceLedgerEntry))
+      allClientPayments.map(async (payment) => {
+        const lockReason = this.getClientPaymentLockReason(payment);
+        return {
+          id: `client_payment:${payment.id}`,
+          recordId: payment.id,
+          source: "client_payment",
+          type: "income",
+          category: "client_payment",
+          description: this.getClientPaymentTransactionDescription(payment),
+          amount: payment.amount,
+          currency: payment.currency,
+          convertedAmount: this.roundFinanceAmount(await convertCurrency(payment.amount, payment.currency, displayCurrency)),
+          date: payment.paymentDate,
+          relatedId: payment.id,
+          relatedType: "client_payment",
+          status: "completed",
+          notes: payment.notes || null,
+          clientId: payment.clientId,
+          serviceId: payment.serviceId || null,
+          employeeId: null,
+          isSystemManaged: true,
+          canEdit: !lockReason,
+          canDelete: !lockReason,
+          lockedReason: lockReason,
+          displayCurrency,
+        } satisfies FinanceLedgerEntry;
+      })
     );
 
     const payrollEntries = await Promise.all(
@@ -726,6 +909,7 @@ export class DatabaseStorage implements IStorage {
 
   async createClientPayment(payment: InsertClientPayment): Promise<ClientPayment> {
     return await db.transaction(async (tx) => {
+      this.assertAllowedManualClientPayment(payment);
       const paymentId = randomUUID();
       await tx.insert(clientPayments).values({ ...payment, id: paymentId });
       const paymentResult = await tx.select().from(clientPayments).where(eq(clientPayments.id, paymentId));
@@ -741,6 +925,12 @@ export class DatabaseStorage implements IStorage {
       if (existing.length === 0) {
         return undefined;
       }
+      const existingPayment = existing[0];
+      const lockReason = this.getClientPaymentLockReason(existingPayment);
+      if (lockReason) {
+        throw new FinanceMutationError(lockReason, 409);
+      }
+      this.assertAllowedManualClientPayment({ notes: payment.notes ?? null });
       await tx.update(clientPayments).set(payment).where(eq(clientPayments.id, id));
       const updated = await tx.select().from(clientPayments).where(eq(clientPayments.id, id));
       const updatedPayment = updated[0];
@@ -751,6 +941,14 @@ export class DatabaseStorage implements IStorage {
 
   async deleteClientPayment(id: string): Promise<boolean> {
     return await db.transaction(async (tx) => {
+      const existing = await tx.select().from(clientPayments).where(eq(clientPayments.id, id));
+      if (existing.length === 0) {
+        return false;
+      }
+      const lockReason = this.getClientPaymentLockReason(existing[0]);
+      if (lockReason) {
+        throw new FinanceMutationError(lockReason, 409);
+      }
       await tx.delete(transactions).where(and(eq(transactions.relatedType, "client_payment"), eq(transactions.relatedId, id)));
       await tx.delete(clientPayments).where(eq(clientPayments.id, id));
       return true;
@@ -918,82 +1116,128 @@ export class DatabaseStorage implements IStorage {
 
   async getFinanceClientReport(params: FinanceLedgerParams): Promise<FinanceClientReportItem[]> {
     const { month, year, displayCurrency } = params;
-    const [allClients, allServices, allPayments, paymentsThisPeriod, allSubPackages, allTransactions] = await Promise.all([
+    const [allClients, allServices, allPayments, paymentsThisPeriod, allSubPackages] = await Promise.all([
       this.getClients(),
       this.getClientServices(),
       this.getClientPayments({}),
       this.getClientPayments({ month, year }),
       this.getSubPackages(),
-      this.getTransactions({}),
     ]);
 
     const subPackageMap = new Map(allSubPackages.map((subPackage) => [subPackage.id, subPackage]));
-    const completedServiceIdsWithTransaction = new Set(
-      allTransactions
-        .filter((transaction) => transaction.type === "income" && transaction.relatedType === "client_service" && transaction.relatedId)
-        .map((transaction) => transaction.relatedId!)
-    );
 
     return await Promise.all(
       allClients
         .filter((client) => client.status === "active" || client.status === "completed")
         .map(async (client) => {
           const clientServicesList = allServices.filter((service) => service.clientId === client.id);
+          const clientPaymentsAll = allPayments.filter((payment) => payment.clientId === client.id);
+          const clientPaymentsThisPeriod = paymentsThisPeriod.filter((payment) => payment.clientId === client.id);
 
+          let paidThisPeriod = 0;
+          let paidOverall = 0;
+          let oneTimePaidThisPeriod = 0;
           let expectedMonthly = 0;
           let expectedOneTime = 0;
+          let recurringPaidThisPeriod = 0;
 
-          for (const service of clientServicesList) {
-            if (!service.price || !service.currency) continue;
-            const subPackage = service.subPackageId ? subPackageMap.get(service.subPackageId) : null;
-            const billingType = subPackage?.billingType || "one_time";
-
-            if (billingType === "monthly") {
-              expectedMonthly += await convertCurrency(service.price, service.currency, displayCurrency);
-            } else if (service.status === "completed" && !completedServiceIdsWithTransaction.has(service.id)) {
-              expectedOneTime += await convertCurrency(service.price, service.currency, displayCurrency);
-            }
+          for (const payment of clientPaymentsAll) {
+            paidOverall += await convertCurrency(payment.amount, payment.currency, displayCurrency);
           }
-
-          const clientPaymentsThisPeriod = paymentsThisPeriod.filter((payment) => payment.clientId === client.id);
-          let paidThisPeriod = 0;
-          let paidForMonthlyServices = 0;
-          let oneTimePaidThisPeriod = 0;
 
           for (const payment of clientPaymentsThisPeriod) {
-            const convertedAmount = await convertCurrency(payment.amount, payment.currency, displayCurrency);
-            paidThisPeriod += convertedAmount;
-
-            let isMonthly = false;
-            if (payment.serviceId) {
-              const service = clientServicesList.find((item) => item.id === payment.serviceId);
-              if (service) {
-                const subPackage = service.subPackageId ? subPackageMap.get(service.subPackageId) : null;
-                isMonthly = (subPackage?.billingType || "one_time") === "monthly";
-              }
-            } else {
-              isMonthly = true;
-            }
-
-            if (isMonthly) {
-              paidForMonthlyServices += convertedAmount;
-            } else {
-              oneTimePaidThisPeriod += convertedAmount;
-            }
+            paidThisPeriod += await convertCurrency(payment.amount, payment.currency, displayCurrency);
           }
 
-          const dueRaw = expectedMonthly - paidForMonthlyServices;
-          const due = dueRaw > 0.01 ? dueRaw : 0;
+          const serviceBalances = await Promise.all(clientServicesList.map(async (service) => {
+            if (!service.price || !service.currency) {
+              return null;
+            }
+
+            const subPackage = service.subPackageId ? subPackageMap.get(service.subPackageId) : null;
+            const billingType = subPackage?.billingType || "one_time";
+            const servicePaymentsAll = clientPaymentsAll.filter((payment) => payment.serviceId === service.id);
+            const servicePaymentsThisPeriod = clientPaymentsThisPeriod.filter((payment) => payment.serviceId === service.id);
+
+            let servicePaidOverall = 0;
+            let servicePaidThisPeriod = 0;
+            for (const payment of servicePaymentsAll) {
+              servicePaidOverall += await convertCurrency(payment.amount, payment.currency, displayCurrency);
+            }
+            for (const payment of servicePaymentsThisPeriod) {
+              servicePaidThisPeriod += await convertCurrency(payment.amount, payment.currency, displayCurrency);
+            }
+
+            const convertedAmount = await convertCurrency(service.price, service.currency, displayCurrency);
+            const remainingRaw = convertedAmount - servicePaidOverall;
+            const remaining = remainingRaw > 0.01 ? remainingRaw : 0;
+            const isRecurring = billingType !== "one_time";
+            const isCompleted = service.status === "completed";
+
+            if (isRecurring && this.isServiceActiveForRecurringCharge(service, month, year)) {
+              expectedMonthly += convertedAmount;
+              recurringPaidThisPeriod += servicePaidThisPeriod;
+            }
+
+            if (!isRecurring && isCompleted && remaining > 0) {
+              expectedOneTime += remaining;
+            }
+
+            if (!isRecurring) {
+              oneTimePaidThisPeriod += servicePaidThisPeriod;
+            }
+
+            return {
+              serviceId: service.id,
+              serviceName: service.serviceName,
+              serviceNameEn: service.serviceNameEn || null,
+              status: service.status,
+              billingType,
+              amount: service.price,
+              currency: service.currency,
+              convertedAmount: this.roundFinanceAmount(convertedAmount),
+              paidThisPeriod: this.roundFinanceAmount(servicePaidThisPeriod),
+              paidOverall: this.roundFinanceAmount(servicePaidOverall),
+              remaining: this.roundFinanceAmount(remaining),
+              isCompleted,
+              isSettled: remaining <= 0.01,
+            };
+          }));
+
+          let unallocatedPaidThisPeriod = 0;
+          let unallocatedPaidOverall = 0;
+          for (const payment of clientPaymentsAll.filter((entry) => !entry.serviceId)) {
+            unallocatedPaidOverall += await convertCurrency(payment.amount, payment.currency, displayCurrency);
+          }
+          for (const payment of clientPaymentsThisPeriod.filter((entry) => !entry.serviceId)) {
+            unallocatedPaidThisPeriod += await convertCurrency(payment.amount, payment.currency, displayCurrency);
+          }
+
+          const recurringDueRaw = expectedMonthly - recurringPaidThisPeriod - unallocatedPaidThisPeriod;
+          const recurringDue = recurringDueRaw > 0.01 ? recurringDueRaw : 0;
+          const oneTimeOutstanding = serviceBalances
+            .filter((service): service is NonNullable<typeof service> => Boolean(service))
+            .filter((service) => service.billingType === "one_time")
+            .reduce((sum, service) => sum + service.remaining, 0);
+          const totalOutstanding = recurringDue + oneTimeOutstanding;
+          const due = totalOutstanding > 0.01 ? totalOutstanding : 0;
 
           return {
             clientId: client.id,
             expectedMonthly: this.roundFinanceAmount(expectedMonthly),
             expectedOneTime: this.roundFinanceAmount(expectedOneTime),
             paidThisPeriod: this.roundFinanceAmount(paidThisPeriod),
+            paidOverall: this.roundFinanceAmount(paidOverall),
             oneTimePaidThisPeriod: this.roundFinanceAmount(oneTimePaidThisPeriod),
+            unallocatedPaidThisPeriod: this.roundFinanceAmount(unallocatedPaidThisPeriod),
+            unallocatedPaidOverall: this.roundFinanceAmount(unallocatedPaidOverall),
             due: this.roundFinanceAmount(due),
+            totalOutstanding: this.roundFinanceAmount(due),
             isOverdue: due > 0,
-            payments: clientPaymentsThisPeriod,
+            payments: clientPaymentsAll,
+            services: serviceBalances
+              .filter((service): service is NonNullable<typeof service> => Boolean(service))
+              .sort((a, b) => b.remaining - a.remaining),
           };
         })
     );
@@ -1016,107 +1260,35 @@ export class DatabaseStorage implements IStorage {
     const currentYearNum = now.getFullYear();
     const calcMonth = month || currentMonth;
     const calcYear = year || currentYearNum;
-    const [ledger, salaries, payrollPaymentsThisPeriod, allServices, allPayments, allSubPackages, allMainPackages, allServiceTransactions] = await Promise.all([
+    const [ledger, payrollReport, clientReport, allServices, allSubPackages, allMainPackages] = await Promise.all([
       this.buildFinanceLedger({ month, year, displayCurrency }),
-      this.getEmployeeSalaries(),
-      this.getPayrollPayments({ month: calcMonth, year: calcYear }),
+      this.getFinancePayrollReport({ month: calcMonth, year: calcYear, displayCurrency }),
+      this.getFinanceClientReport({ month: calcMonth, year: calcYear, displayCurrency }),
       this.getClientServices(),
-      this.getClientPayments({}),
       this.getSubPackages(),
       this.getMainPackages(),
-      this.getTransactions({}),
     ]);
 
     const totalIncome = ledger
-      .filter((entry) => entry.type === "income")
+      .filter((entry) => this.isCashIncomeEntry(entry))
       .reduce((sum, entry) => sum + entry.convertedAmount, 0);
     const totalExpenses = ledger
       .filter((entry) => entry.type === "expense")
       .reduce((sum, entry) => sum + entry.convertedAmount, 0);
 
-    // Get employee salaries to calculate payroll remaining
-    let totalExpectedSalaries = 0;
-    let totalPaidSalaries = 0;
-
-    for (const salary of salaries) {
-      if (salary.type === "monthly" && salary.amount) {
-        const converted = await convertCurrency(salary.amount, salary.currency, displayCurrency);
-        totalExpectedSalaries += converted;
-      }
-    }
-
-    for (const payment of payrollPaymentsThisPeriod) {
-      const converted = await convertCurrency(payment.amount, payment.currency, displayCurrency);
-      totalPaidSalaries += converted;
-    }
+    const payrollRemaining = payrollReport.reduce((sum, item) => sum + item.remaining, 0);
 
     // Calculate Overdue Amount & Expected Revenue
     const subPackageMap = new Map(allSubPackages.map(sp => [sp.id, sp]));
     const mainPackageMap = new Map(allMainPackages.map(mp => [mp.id, mp]));
     const serviceMap = new Map(allServices.map((service) => [service.id, service]));
 
-    // Build map of auto-created transaction amounts per service (all time, not just current month)
-    const serviceTransactionAmounts: Record<string, number> = {};
-    for (const t of allServiceTransactions) {
-      if (t.type === "income" && t.relatedType === "client_service" && t.relatedId) {
-        const converted = await convertCurrency(t.amount, t.currency, displayCurrency);
-        serviceTransactionAmounts[t.relatedId] = (serviceTransactionAmounts[t.relatedId] || 0) + converted;
-      }
-    }
-
-    let overdueAmount = 0;
-    let expectedRevenue = 0;
+    const overdueAmount = clientReport.reduce((sum, item) => sum + item.due, 0);
+    const expectedRevenue = clientReport.reduce((sum, item) => sum + item.expectedOneTime, 0);
     const revenueByPackage: Record<string, number> = {};
-    const todayStr = now.toISOString().split('T')[0];
-
-    for (const service of allServices) {
-      if (!service.price || service.status === 'cancelled') continue;
-
-      const subPackage = service.subPackageId ? subPackageMap.get(service.subPackageId) : null;
-      const billingType = subPackage?.billingType || 'one_time';
-
-      const servicePrice = await convertCurrency(service.price, service.currency || 'USD', displayCurrency);
-
-      // Calculate total paid for this service (lifetime) including auto-created transactions
-      const servicePaymentsAll = allPayments.filter(p => p.serviceId === service.id);
-      let totalServicePaid = 0;
-      for (const p of servicePaymentsAll) {
-        totalServicePaid += await convertCurrency(p.amount, p.currency, displayCurrency);
-      }
-      // Include auto-created income transactions (e.g. from service completion)
-      totalServicePaid += (serviceTransactionAmounts[service.id] || 0);
-
-      if (billingType === 'monthly') {
-        // Check if payment for THIS month is made
-        if (service.status === 'active' || service.status === 'completed') {
-          const servicePaymentsThisMonth = servicePaymentsAll.filter(p =>
-            p.month === calcMonth && p.year === calcYear
-          );
-          let totalPaidThisMonth = 0;
-          for (const p of servicePaymentsThisMonth) {
-            totalPaidThisMonth += await convertCurrency(p.amount, p.currency, displayCurrency);
-          }
-
-          if (totalPaidThisMonth < servicePrice - 1) {
-            overdueAmount += (servicePrice - totalPaidThisMonth);
-          }
-        }
-        if (totalServicePaid < servicePrice - 1) {
-          expectedRevenue += (servicePrice - totalServicePaid);
-        }
-      } else {
-        const isDue = (service.status === 'completed') || (service.endDate && service.endDate < todayStr);
-        if (isDue && totalServicePaid < servicePrice - 1) {
-          overdueAmount += (servicePrice - totalServicePaid);
-        }
-        if (service.status === 'completed' && totalServicePaid < servicePrice - 1) {
-          expectedRevenue += (servicePrice - totalServicePaid);
-        }
-      }
-    }
 
     for (const entry of ledger) {
-      if (entry.type === "income") {
+      if (this.isCashIncomeEntry(entry)) {
         const packageId = entry.serviceId ? (serviceMap.get(entry.serviceId)?.mainPackageId || "main-pkg-6") : "main-pkg-6";
         revenueByPackage[packageId] = (revenueByPackage[packageId] || 0) + entry.convertedAmount;
       }
@@ -1158,7 +1330,7 @@ export class DatabaseStorage implements IStorage {
       totalExpenses: this.roundFinanceAmount(totalExpenses),
       netProfit: this.roundFinanceAmount(totalIncome - totalExpenses),
       overdueAmount: this.roundFinanceAmount(overdueAmount),
-      payrollRemaining: this.roundFinanceAmount(totalExpectedSalaries - totalPaidSalaries),
+      payrollRemaining: this.roundFinanceAmount(payrollRemaining),
       expectedRevenue: this.roundFinanceAmount(expectedRevenue),
       servicesBreakdown,
       expenseBreakdown,
@@ -1172,7 +1344,7 @@ export class DatabaseStorage implements IStorage {
     const monthNamesEn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     const monthNamesAr = ["ينا", "فبر", "مار", "أبر", "ماي", "يون", "يول", "أغس", "سبت", "أكت", "نوف", "ديس"];
     const makePoint = (key: string, label: string, labelAr: string, entries: FinanceLedgerEntry[]) => {
-      const income = entries.filter((entry) => entry.type === "income").reduce((sum, entry) => sum + entry.convertedAmount, 0);
+      const income = entries.filter((entry) => this.isCashIncomeEntry(entry)).reduce((sum, entry) => sum + entry.convertedAmount, 0);
       const expenses = entries.filter((entry) => entry.type === "expense").reduce((sum, entry) => sum + entry.convertedAmount, 0);
       return {
         key,
@@ -1570,8 +1742,8 @@ export class DatabaseStorage implements IStorage {
     // JSON arrays for clients
     const allClients = await db.select().from(clients);
     for (const c of allClients) {
-      let salesOwnersArr: string[] = Array.isArray(c.salesOwners) ? (c.salesOwners as any) : [];
-      let assignedStaffArr: string[] = Array.isArray(c.assignedStaff) ? (c.assignedStaff as any) : [];
+      let salesOwnersArr = this.toStringArray(c.salesOwners);
+      let assignedStaffArr = this.toStringArray(c.assignedStaff);
 
       const hasInSalesOwners = salesOwnersArr.includes(fromEmployeeId);
       const hasInAssignedStaff = assignedStaffArr.includes(fromEmployeeId);
@@ -1591,7 +1763,7 @@ export class DatabaseStorage implements IStorage {
           if (hasInAssignedStaff) assignedStaffArr = assignedStaffArr.filter((e) => e !== fromEmployeeId);
         }
         await db.update(clients)
-          .set({ salesOwners: salesOwnersArr as any, assignedStaff: assignedStaffArr as any })
+          .set({ salesOwners: salesOwnersArr, assignedStaff: assignedStaffArr })
           .where(eq(clients.id, c.id));
       }
     }
@@ -1605,7 +1777,7 @@ export class DatabaseStorage implements IStorage {
 
     const allServices = await db.select().from(clientServices);
     for (const s of allServices) {
-      let execArr: string[] = Array.isArray(s.executionEmployeeIds) ? (s.executionEmployeeIds as any) : [];
+      let execArr = this.toStringArray(s.executionEmployeeIds);
       if (execArr.includes(fromEmployeeId)) {
         if (toEmployeeId) {
           execArr = execArr.filter((e) => e !== fromEmployeeId);
@@ -1614,7 +1786,7 @@ export class DatabaseStorage implements IStorage {
           execArr = execArr.filter((e) => e !== fromEmployeeId);
         }
         await db.update(clientServices)
-          .set({ executionEmployeeIds: execArr as any })
+          .set({ executionEmployeeIds: execArr })
           .where(eq(clientServices.id, s.id));
       }
     }
@@ -1746,14 +1918,11 @@ export class DatabaseStorage implements IStorage {
       // 3.b Seed deliverables from sub-package definition if exists
       if (serviceToCreate.subPackageId) {
         const [sp] = await tx.select().from(subPackages).where(eq(subPackages.id, serviceToCreate.subPackageId)).limit(1);
-        const spDeliverables: any[] = (sp?.deliverables && Array.isArray(sp.deliverables)) ? (sp.deliverables as any[]) : [];
+        const spDeliverables = this.toDeliverableDefinitions(sp?.deliverables);
         for (const d of spDeliverables) {
           const labelAr = d.labelAr || d.label || "";
           const labelEn = d.labelEn || d.label || "";
-          let target = 0;
-          if (typeof d.target === "number") target = d.target;
-          else if (d.value !== undefined && !isNaN(Number(d.value))) target = Number(d.value);
-          else if (d.isBoolean) target = 1;
+          const target = this.getDeliverableTarget(d);
 
           await tx.insert(serviceDeliverables).values({
             id: randomUUID(),
@@ -1775,7 +1944,7 @@ export class DatabaseStorage implements IStorage {
 
   // ========== CLIENT SERVICES METHODS ==========
 
-  async getClientServices(clientId?: string): Promise<(ClientService & { deliverables: any[] })[]> {
+  async getClientServices(clientId?: string): Promise<(ClientService & { deliverables: ServiceDeliverableSnapshot[] })[]> {
     try {
       let services;
       if (clientId) {
@@ -1799,7 +1968,7 @@ export class DatabaseStorage implements IStorage {
           labelEn: d.labelEn,
           target: d.target,
           completed: d.completed,
-          isBoolean: d.isBoolean
+          isBoolean: Boolean(d.isBoolean)
         }))
       }));
     } catch (error) {
@@ -1828,17 +1997,14 @@ export class DatabaseStorage implements IStorage {
       const created = result[0];
 
       // Seed deliverables from sub-package if present and no explicit deliverables were provided
-      const incomingDeliverables: any[] = Array.isArray((service as any).deliverables) ? ((service as any).deliverables as any[]) : [];
+      const incomingDeliverables = this.toDeliverableDefinitions((service as InsertClientService & { deliverables?: unknown }).deliverables);
       if (incomingDeliverables.length === 0 && service.subPackageId) {
         const [sp] = await db.select().from(subPackages).where(eq(subPackages.id, service.subPackageId)).limit(1);
-        const spDeliverables: any[] = (sp?.deliverables && Array.isArray(sp.deliverables)) ? (sp.deliverables as any[]) : [];
+        const spDeliverables = this.toDeliverableDefinitions(sp?.deliverables);
         for (const d of spDeliverables) {
           const labelAr = d.labelAr || d.label || "";
           const labelEn = d.labelEn || d.label || "";
-          let target = 0;
-          if (typeof d.target === "number") target = d.target;
-          else if (d.value !== undefined && !isNaN(Number(d.value))) target = Number(d.value);
-          else if (d.isBoolean) target = 1;
+          const target = this.getDeliverableTarget(d);
 
           await db.insert(serviceDeliverables).values({
             id: randomUUID(),
@@ -1942,7 +2108,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async updateServiceDeliverables(serviceId: string, deliverables: any[]): Promise<void> {
+  async updateServiceDeliverables(serviceId: string, deliverables: ServiceDeliverableSnapshot[]): Promise<void> {
     try {
       await db.transaction(async (tx) => {
         for (const d of deliverables) {
@@ -2090,21 +2256,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createInvoice(invoice: InsertInvoice): Promise<Invoice> {
-    const id = randomUUID();
-    await db.insert(invoices).values({ ...invoice, id });
-    const result = await db.select().from(invoices).where(eq(invoices.id, id));
-    return result[0];
+    return await db.transaction(async (tx) => {
+      const id = randomUUID();
+      await tx.insert(invoices).values({ ...invoice, id });
+      const result = await tx.select().from(invoices).where(eq(invoices.id, id));
+      const createdInvoice = result[0];
+      await this.syncInvoicePayment(tx, createdInvoice);
+      return createdInvoice;
+    });
   }
 
   async updateInvoice(id: string, invoice: Partial<InsertInvoice>): Promise<Invoice | undefined> {
     return await db.transaction(async (tx) => {
-      // Get existing invoice to check previous status
       const existingInvoices = await tx.select().from(invoices).where(eq(invoices.id, id));
       const existingInvoice = existingInvoices[0];
       
       if (!existingInvoice) return undefined;
 
-      // Update the invoice
       await tx
         .update(invoices)
         .set({ ...invoice, updatedAt: new Date() })
@@ -2112,54 +2280,31 @@ export class DatabaseStorage implements IStorage {
 
       const updatedInvoices = await tx.select().from(invoices).where(eq(invoices.id, id));
       const updatedInvoice = updatedInvoices[0];
-
-      // Check if status changed to "paid" and wasn't already paid
-      if (invoice.status === "paid" && existingInvoice.status !== "paid") {
-        const paymentDateStr = updatedInvoice.paidDate || new Date().toISOString().split('T')[0];
-        const paymentDate = new Date(paymentDateStr);
-        const month = paymentDate.getMonth() + 1;
-        const year = paymentDate.getFullYear();
-
-        // Create Client Payment
-        const paymentId = randomUUID();
-        const paymentData: InsertClientPayment = {
-          clientId: updatedInvoice.clientId,
-          serviceId: (updatedInvoice as any).serviceId,
-          amount: updatedInvoice.amount,
-          currency: updatedInvoice.currency,
-          paymentDate: paymentDateStr,
-          month,
-          year,
-          paymentMethod: updatedInvoice.paymentMethod || "bank_transfer",
-          notes: `Payment for Invoice #${updatedInvoice.invoiceNumber}`,
-        };
-        
-        await tx.insert(clientPayments).values({ ...paymentData, id: paymentId });
-
-        // Create Transaction (Income)
-        const transactionId = randomUUID();
-        await tx.insert(transactions).values({
-          id: transactionId,
-          type: "income",
-          category: "client_payment",
-          amount: updatedInvoice.amount,
-          currency: updatedInvoice.currency,
-          date: paymentDateStr,
-          description: `Invoice Payment #${updatedInvoice.invoiceNumber}`,
-          relatedType: "client_payment",
-          relatedId: paymentId,
-          clientId: updatedInvoice.clientId,
-          serviceId: (updatedInvoice as any).serviceId,
-        });
-      }
+      await this.syncInvoicePayment(tx, updatedInvoice);
 
       return updatedInvoice;
     });
   }
 
   async deleteInvoice(id: string): Promise<boolean> {
-    await db.delete(invoices).where(eq(invoices.id, id));
-    return true;
+    return await db.transaction(async (tx) => {
+      const existingRows = await tx.select().from(invoices).where(eq(invoices.id, id));
+      const existingInvoice = existingRows[0];
+      if (!existingInvoice) {
+        return true;
+      }
+
+      const linkedPayment = await this.findInvoicePaymentByInvoiceId(tx, id);
+      if (linkedPayment) {
+        await tx.delete(transactions).where(
+          and(eq(transactions.relatedType, "client_payment"), eq(transactions.relatedId, linkedPayment.id))
+        );
+        await tx.delete(clientPayments).where(eq(clientPayments.id, linkedPayment.id));
+      }
+
+      await tx.delete(invoices).where(eq(invoices.id, id));
+      return true;
+    });
   }
 
   // ========== EMPLOYEES METHODS ==========
@@ -2205,7 +2350,7 @@ export class DatabaseStorage implements IStorage {
       const [updatedEmp] = await tx.select().from(employees).where(eq(employees.id, id)).limit(1);
 
       // 3. Sync roleId, isActive and profileImage to User record(s) to ensure auth reflects employee status
-      const updateUserPayload: any = {};
+      const updateUserPayload: Partial<Pick<InsertUser, "roleId" | "isActive" | "avatar">> = {};
       if (typeof employee.roleId !== "undefined") {
         updateUserPayload.roleId = employee.roleId;
       }
@@ -2233,14 +2378,12 @@ export class DatabaseStorage implements IStorage {
         if (typeof employee.isActive !== "undefined" && employee.isActive === false) {
           const affected: string[] = [];
           for (const u of linkedUsers) {
-            // @ts-ignore
-            if (u.id) affected.push(u.id as any);
+            if (u.id) affected.push(u.id);
           }
           if (updatedEmp?.email) {
             const mailUsers = await tx.select().from(users).where(eq(users.email, updatedEmp.email));
             for (const u of mailUsers) {
-              // @ts-ignore
-              if (u.id) affected.push(u.id as any);
+              if (u.id) affected.push(u.id);
             }
           }
           const uniq = Array.from(new Set(affected));
@@ -2274,7 +2417,7 @@ export class DatabaseStorage implements IStorage {
                 read: false,
                 relatedId: updatedEmp.id,
                 relatedType: "employee",
-              } as any);
+              });
             }
           }
         }
@@ -2356,7 +2499,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async updateSystemSettings(settings: any): Promise<SystemSettings> {
+  async updateSystemSettings(settings: InsertSystemSettings["settings"]): Promise<SystemSettings> {
     try {
       const existing = await this.getSystemSettings();
       if (existing) {
@@ -2432,42 +2575,62 @@ export class DatabaseStorage implements IStorage {
       // Check if this lead has preserved client data
       if (lead.preservedClientData) {
         console.log(`[Storage] Restoring preserved client data`);
-        const preservedData = lead.preservedClientData as any;
+        const preservedData = lead.preservedClientData as PreservedClientData;
         const preservedClient = preservedData.client;
         const preservedServices = preservedData.services;
 
         // Restore the client
         const restoredClientId = randomUUID();
-        await tx.insert(clients).values({
-          id: restoredClientId,
-          name: preservedClient.name,
+        const restoredClientValues: InsertClient = {
+          name: preservedClient.name ?? lead.name,
           email: preservedClient.email || null,
           phone: preservedClient.phone || null,
           company: preservedClient.company || null,
           country: preservedClient.country || null,
           source: preservedClient.source || null,
-          status: "active", // Force status to active as requested
+          status: "active",
           salesOwnerId: preservedClient.salesOwnerId || null,
-          salesOwners: preservedClient.salesOwners || [],
+          assignedManagerId: preservedClient.assignedManagerId || null,
+          salesOwners: Array.isArray(preservedClient.salesOwners) ? preservedClient.salesOwners : [],
+          assignedStaff: Array.isArray(preservedClient.assignedStaff) ? preservedClient.assignedStaff : [],
           convertedFromLeadId: leadId,
-          leadCreatedAt: lead.createdAt || null, 
+          leadCreatedAt: lead.createdAt || null,
           notes: preservedClient.notes || null,
+        };
+        await tx.insert(clients).values({
+          id: restoredClientId,
+          ...restoredClientValues,
         });
         [newClient] = await tx.select().from(clients).where(eq(clients.id, restoredClientId));
 
         // Restore services
         if (preservedServices && Array.isArray(preservedServices)) {
           for (const service of preservedServices) {
-             // Ensure required fields are present and safe
-             await tx.insert(clientServices).values({
-               ...service,
-               id: randomUUID(), // Generate new ID
-               clientId: newClient.id, // Link to new client
-               // Explicitly handle potentially problematic fields if they were in the spread object
-               updatedAt: undefined,
-               createdAt: undefined,
-               completedAt: service.completedAt ? new Date(service.completedAt) : null,
-             });
+            if (!service.mainPackageId || !service.serviceName || !service.startDate) {
+              continue;
+            }
+
+            const restoredServiceValues: InsertClientService = {
+              clientId: newClient.id,
+              mainPackageId: service.mainPackageId,
+              subPackageId: service.subPackageId || null,
+              serviceName: service.serviceName,
+              serviceNameEn: service.serviceNameEn || null,
+              startDate: service.startDate,
+              endDate: service.endDate || null,
+              status: service.status || "not_started",
+              price: service.price ?? null,
+              currency: service.currency || null,
+              salesEmployeeId: service.salesEmployeeId || null,
+              executionEmployeeIds: Array.isArray(service.executionEmployeeIds) ? service.executionEmployeeIds : [],
+              notes: service.notes || null,
+            };
+
+            await tx.insert(clientServices).values({
+              id: randomUUID(),
+              ...restoredServiceValues,
+              completedAt: service.completedAt ? new Date(service.completedAt) : null,
+            });
           }
         }
       } else {

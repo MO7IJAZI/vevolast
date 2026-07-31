@@ -4,6 +4,18 @@ import path from "path";
 import { Readable } from "stream";
 import { safeJsonParse } from "../../utils/safeJson";
 
+type StoredFileMetadata = {
+  contentType: string;
+  size: number;
+  metadata: Record<string, unknown>;
+  updated: string;
+};
+
+type StoredFileMetadataPayload = {
+  contentType?: string;
+  metadata?: Record<string, unknown>;
+};
+
 export class LocalFile {
   public name: string;
   private filePath: string;
@@ -24,33 +36,38 @@ export class LocalFile {
     }
   }
 
-  async getMetadata(): Promise<[any]> {
+  async getMetadata(): Promise<[StoredFileMetadata]> {
     try {
       const stats = await fs.promises.stat(this.filePath);
-      let metadata = {};
+      let metadata: StoredFileMetadataPayload = {};
       try {
         const metaContent = await fs.promises.readFile(this.metaPath, "utf-8");
-        metadata = safeJsonParse(metaContent, {});
+        metadata = safeJsonParse<StoredFileMetadataPayload>(metaContent, {});
       } catch {
         // No metadata file, that's fine
       }
 
       return [{
-        contentType: (metadata as any).contentType || "application/octet-stream",
+        contentType: metadata.contentType || "application/octet-stream",
         size: stats.size,
-        metadata: (metadata as any).metadata || {},
+        metadata: metadata.metadata || {},
         updated: stats.mtime.toISOString(),
       }];
     } catch (err) {
-      if ((err as any).code === 'ENOENT') {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
         throw new Error("File not found");
       }
       throw err;
     }
   }
 
-  async setMetadata(options: { metadata: any }): Promise<void> {
-    const currentMeta = await this.getMetadata().then(r => r[0]).catch(() => ({}));
+  async setMetadata(options: { metadata: Record<string, unknown> }): Promise<void> {
+    const currentMeta = await this.getMetadata().then(r => r[0]).catch<StoredFileMetadata>(() => ({
+      contentType: "application/octet-stream",
+      size: 0,
+      metadata: {},
+      updated: new Date(0).toISOString(),
+    }));
     const newMeta = {
       ...currentMeta,
       metadata: {

@@ -52,9 +52,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useData } from "@/contexts/DataContext";
+import { useData, type ServiceItem, type ServiceDeliverable } from "@/contexts/DataContext";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Transaction, ClientPayment, PayrollPayment, EmployeeSalary } from "@shared/schema";
+import type { Transaction, ClientPayment, PayrollPayment, EmployeeSalary, InsertTransaction, InsertClientPayment, InsertPayrollPayment } from "@shared/schema";
 import { useCurrency, type Currency, currencies as contextCurrencies } from "@/contexts/CurrencyContext";
 
 // Use constants from CurrencyContext where possible
@@ -188,10 +188,76 @@ type FinanceClientReportItem = {
   expectedMonthly: number;
   expectedOneTime: number;
   paidThisPeriod: number;
+  paidOverall: number;
   oneTimePaidThisPeriod: number;
+  unallocatedPaidThisPeriod: number;
+  unallocatedPaidOverall: number;
   due: number;
+  totalOutstanding: number;
   isOverdue: boolean;
   payments: ClientPayment[];
+  services: {
+    serviceId: string;
+    serviceName: string;
+    serviceNameEn: string | null;
+    status: string;
+    billingType: string;
+    amount: number;
+    currency: Currency;
+    convertedAmount: number;
+    paidThisPeriod: number;
+    paidOverall: number;
+    remaining: number;
+    isCompleted: boolean;
+    isSettled: boolean;
+  }[];
+};
+
+type IncomeFormState = {
+  clientId: string;
+  serviceId: string;
+  amount: string;
+  currency: Currency;
+  date: string;
+  notes: string;
+  incomeType: "client_payment" | "external";
+};
+
+type ExpenseFormState = {
+  category: string;
+  amount: string;
+  currency: Currency;
+  description: string;
+  date: string;
+  notes: string;
+  employeeId: string;
+  clientId: string;
+  serviceId: string;
+};
+
+type PayrollFormState = {
+  amount: string;
+  currency: Currency;
+  notes: string;
+};
+
+type TransactionEditFormState = {
+  id: string;
+  type: "income" | "expense";
+  category: string;
+  amount: string;
+  currency: Currency;
+  description: string;
+  date: string;
+  clientId: string;
+  serviceId: string;
+};
+
+type LegacyDeliverableProgress = {
+  completed?: number;
+  target?: number;
+  done?: number;
+  total?: number;
 };
 
 import { useAuth } from "@/contexts/AuthContext";
@@ -245,7 +311,7 @@ export default function FinancePage() {
   const [editingPayrollPayment, setEditingPayrollPayment] = useState<PayrollPayment | null>(null);
   
   // Form states
-  const [incomeForm, setIncomeForm] = useState({
+  const [incomeForm, setIncomeForm] = useState<IncomeFormState>({
     clientId: "",
     serviceId: "",
     amount: "",
@@ -255,7 +321,7 @@ export default function FinancePage() {
     incomeType: "client_payment" as "client_payment" | "external",
   });
   
-  const [expenseForm, setExpenseForm] = useState({
+  const [expenseForm, setExpenseForm] = useState<ExpenseFormState>({
     category: "",
     amount: "",
     currency: "USD" as Currency,
@@ -267,13 +333,13 @@ export default function FinancePage() {
     serviceId: "",
   });
   
-  const [payrollForm, setPayrollForm] = useState({
+  const [payrollForm, setPayrollForm] = useState<PayrollFormState>({
     amount: "",
     currency: "TRY" as Currency,
     notes: "",
   });
 
-  const [transactionEditForm, setTransactionEditForm] = useState({
+  const [transactionEditForm, setTransactionEditForm] = useState<TransactionEditFormState>({
     id: "",
     type: "income" as "income" | "expense",
     category: "",
@@ -355,7 +421,7 @@ export default function FinancePage() {
       totalIncome: "إجمالي الإيرادات",
       totalExpenses: "إجمالي المصروفات",
       netProfit: "صافي الربح",
-      overdueAmount: "المبالغ المتأخرة",
+      overdueAmount: "الرصيد المستحق",
       payrollRemaining: "الرواتب المتبقية",
       expectedRevenue: "الإيرادات المتوقعة",
       revenueByService: "الإيرادات حسب الخدمة",
@@ -396,8 +462,8 @@ export default function FinancePage() {
       totalDue: "إجمالي المستحق",
       expectedMonthly: "المتوقع شهرياً",
       paidMonthly: "المدفوع شهرياً",
-      due: "المستحق",
-      overdue: "متأخر",
+      due: "المتبقي",
+      overdue: "مستحق",
       paid: "مدفوع",
       noTransactions: "لا توجد معاملات",
       noEmployees: "لا يوجد موظفين",
@@ -434,7 +500,7 @@ export default function FinancePage() {
       totalIncome: "Total Income",
       totalExpenses: "Total Expenses",
       netProfit: "Net Profit",
-      overdueAmount: "Overdue Amount",
+      overdueAmount: "Outstanding Balance",
       payrollRemaining: "Payroll Remaining",
       expectedRevenue: "Expected Revenue",
       revenueByService: "Revenue by Service",
@@ -475,8 +541,8 @@ export default function FinancePage() {
       totalDue: "Total Due",
       expectedMonthly: "Expected Monthly",
       paidMonthly: "Paid This Month",
-      due: "Due",
-      overdue: "Overdue",
+      due: "Remaining",
+      overdue: "Outstanding",
       paid: "Paid",
       noTransactions: "No transactions",
       noEmployees: "No employees",
@@ -697,7 +763,7 @@ export default function FinancePage() {
 
   // Create transaction mutation
   const createTransactionMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: InsertTransaction) => {
       return apiRequest("POST", "/api/transactions", data);
     },
     onSuccess: () => {
@@ -723,7 +789,7 @@ export default function FinancePage() {
 
   // Create client payment mutation
   const createClientPaymentMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: InsertClientPayment) => {
       return apiRequest("POST", "/api/client-payments", data);
     },
     onSuccess: () => {
@@ -749,7 +815,7 @@ export default function FinancePage() {
 
   // Create payroll payment mutation
   const createPayrollPaymentMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: InsertPayrollPayment) => {
       return apiRequest("POST", "/api/payroll-payments", data);
     },
     onSuccess: () => {
@@ -774,7 +840,7 @@ export default function FinancePage() {
   });
 
   const updateTransactionMutation = useMutation({
-    mutationFn: async (data: { id: string; payload: any }) => {
+    mutationFn: async (data: { id: string; payload: Partial<InsertTransaction> }) => {
       return apiRequest("PATCH", `/api/transactions/${data.id}`, data.payload);
     },
     onSuccess: () => {
@@ -825,7 +891,7 @@ export default function FinancePage() {
   });
 
   const updateClientPaymentMutation = useMutation({
-    mutationFn: async (data: { id: string; payload: any }) => {
+    mutationFn: async (data: { id: string; payload: Partial<InsertClientPayment> }) => {
       return apiRequest("PATCH", `/api/client-payments/${data.id}`, data.payload);
     },
     onSuccess: () => {
@@ -872,7 +938,7 @@ export default function FinancePage() {
   });
 
   const updatePayrollPaymentMutation = useMutation({
-    mutationFn: async (data: { id: string; payload: any }) => {
+    mutationFn: async (data: { id: string; payload: Partial<InsertPayrollPayment> }) => {
       return apiRequest("PATCH", `/api/payroll-payments/${data.id}`, data.payload);
     },
     onSuccess: () => {
@@ -917,6 +983,29 @@ export default function FinancePage() {
       });
     }
   });
+
+  const getClientPaymentLockReason = (payment: Pick<ClientPayment, "notes"> | null | undefined) => {
+    if (payment?.notes && /\[invoice:[^\]]+\]/.test(payment.notes)) {
+      return language === "ar"
+        ? "هذه الدفعة مولدة من فاتورة. عدل الفاتورة نفسها."
+        : "This payment is generated from an invoice. Edit the invoice instead.";
+    }
+    return null;
+  };
+
+  const openNewClientPayment = (clientId: string, options?: { serviceId?: string; amount?: number; currency?: Currency }) => {
+    setEditingClientPayment(null);
+    setIncomeForm({
+      clientId,
+      serviceId: options?.serviceId || "",
+      amount: options?.amount ? String(Math.round(options.amount)) : "",
+      currency: options?.currency || "USD",
+      date: new Date().toISOString().split("T")[0],
+      notes: "",
+      incomeType: "client_payment",
+    });
+    setIncomeModalOpen(true);
+  };
 
   const getMonthYearFromDate = (date: string) => {
     const [year, month] = date.split("-").map(Number);
@@ -1005,7 +1094,7 @@ export default function FinancePage() {
       const selectedService = selectedClient?.services.find(s => s.id === incomeForm.serviceId);
       
       if (selectedService && selectedService.deliverables && selectedService.deliverables.length > 0) {
-        const incompleteDeliverables = selectedService.deliverables.filter((d: any) => d.completed < d.target);
+        const incompleteDeliverables = selectedService.deliverables.filter((d) => d.completed < d.target);
         
         if (incompleteDeliverables.length > 0) {
           const confirmMessage = language === "ar" 
@@ -1217,7 +1306,7 @@ export default function FinancePage() {
      }
 
      const totalIncome = financeLedger
-       .filter((entry) => entry.type === "income")
+       .filter((entry) => entry.type === "income" && entry.source !== "service_completion")
        .reduce((sum, entry) => sum + entry.convertedAmount, 0);
      const totalExpenses = financeLedger
        .filter((entry) => entry.type === "expense")
@@ -1238,6 +1327,7 @@ export default function FinancePage() {
      return financeLedger
        .filter((entry) => {
          if (entry.type !== "income") return false;
+         if (entry.source === "service_completion") return false;
          if (revenueTypeFilter === "client_payment" && entry.source !== "client_payment") return false;
          if (revenueTypeFilter === "transaction" && entry.source !== "transaction") return false;
          if (revenueClientFilter !== "all" && entry.clientId !== revenueClientFilter) return false;
@@ -1351,7 +1441,7 @@ export default function FinancePage() {
        .filter(item => {
          if (clientFinanceClientFilter !== "all" && item.clientId !== clientFinanceClientFilter) return false;
          if (clientFinanceStatusFilter === "overdue" && !item.isOverdue) return false;
-         if (clientFinanceStatusFilter === "paid" && (item.isOverdue || item.due > 0 || item.expectedOneTime > 0)) return false;
+         if (clientFinanceStatusFilter === "paid" && item.totalOutstanding > 0.01) return false;
          return true;
        })
        .map(item => {
@@ -1362,10 +1452,14 @@ export default function FinancePage() {
          expectedMonthly: item.expectedMonthly,
          expectedOneTime: item.expectedOneTime,
          paidThisMonth: item.paidThisPeriod,
+         paidOverall: item.paidOverall,
+         totalOutstanding: item.totalOutstanding,
+         unallocatedPaidThisPeriod: item.unallocatedPaidThisPeriod,
+         unallocatedPaidOverall: item.unallocatedPaidOverall,
          due: item.due,
          isOverdue: item.isOverdue,
-         isSettled: item.due <= 0 && item.expectedOneTime <= 0,
-         services: Array.isArray(client.services) ? client.services : [],
+         isSettled: item.totalOutstanding <= 0.01,
+         services: item.services,
          payments: item.payments,
        };
       })
@@ -1448,10 +1542,24 @@ export default function FinancePage() {
     const client = clients.find((entry) => entry.id === clientDetailsSheet);
     const report = clientFinanceData.find((entry) => entry.clientId === clientDetailsSheet);
     if (!client || !report) return null;
+    const clientServices = Array.isArray(client.services) ? client.services : [];
     return {
       client,
-      services: Array.isArray(client.services) ? client.services : [],
+      services: report.services.map((serviceBalance) => {
+        const originalService = clientServices.find((service) => service.id === serviceBalance.serviceId);
+        return {
+          ...originalService,
+          ...serviceBalance,
+          id: serviceBalance.serviceId,
+          serviceName: originalService?.serviceName || serviceBalance.serviceName,
+          serviceNameEn: originalService?.serviceNameEn || serviceBalance.serviceNameEn,
+          deliverables: originalService?.deliverables || [],
+        };
+      }),
       payments: report.payments,
+      paidOverall: report.paidOverall,
+      totalOutstanding: report.totalOutstanding,
+      unallocatedPaidOverall: report.unallocatedPaidOverall,
     };
   }, [clientDetailsSheet, clientFinanceData, clients]);
 
@@ -1472,13 +1580,13 @@ export default function FinancePage() {
 
   // Calculate deliverable progress for a service
   // ServiceDeliverable: { key, label, labelEn?, target, completed, isBoolean? }
-  const getDeliverableProgress = (service: any) => {
-    const deliverables = service.deliverables || [];
+  const getDeliverableProgress = (service: Pick<ServiceItem, "deliverables">) => {
+    const deliverables = (service.deliverables ?? []) as ServiceDeliverable[] | Record<string, LegacyDeliverableProgress>;
     const items: { key: string; label: string; done: number; total: number; isBoolean: boolean }[] = [];
     
     // Handle both array format (correct) and object format (legacy fallback)
     if (Array.isArray(deliverables)) {
-      deliverables.forEach((d: any) => {
+      deliverables.forEach((d) => {
         const label = language === "ar" ? (d.label || d.key) : (d.labelEn || d.label || d.key);
         items.push({
           key: d.key,
@@ -1490,7 +1598,7 @@ export default function FinancePage() {
       });
     } else if (typeof deliverables === "object") {
       // Legacy object format fallback
-      Object.entries(deliverables).forEach(([key, value]: [string, any]) => {
+      Object.entries(deliverables).forEach(([key, value]) => {
         if (typeof value === "object" && value !== null) {
           const label = DELIVERABLE_LABELS[key] 
             ? (language === "ar" ? DELIVERABLE_LABELS[key].ar : DELIVERABLE_LABELS[key].en)
@@ -1550,7 +1658,7 @@ export default function FinancePage() {
     setEditingClientPayment(payment);
     setIncomeForm({
       clientId: payment.clientId,
-      serviceId: (payment as any).serviceId || "",
+      serviceId: payment.serviceId || "",
       amount: String(payment.amount),
       currency: payment.currency as Currency,
       date: payment.paymentDate,
@@ -1615,17 +1723,17 @@ export default function FinancePage() {
   };
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6 overflow-x-hidden p-4 md:p-6">
-      <section className="rounded-[28px] border border-border/60 bg-gradient-to-br from-primary/10 via-background to-purple-500/5 p-5 shadow-sm md:p-6">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-          <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground">
-              <Sparkles className="h-3.5 w-3.5 text-primary" />
-              {language === "ar" ? "لوحة مالية موحدة وحديثة" : "Modern unified finance workspace"}
+    <div className="mx-auto max-w-[1600px] space-y-4 sm:space-y-6 overflow-x-hidden p-3 sm:p-4 md:p-6">
+      <section className="rounded-2xl sm:rounded-[28px] border border-border/60 bg-gradient-to-br from-primary/10 via-background to-purple-500/5 p-4 sm:p-5 md:p-6 shadow-sm">
+        <div className="flex flex-col gap-4 xl:gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <div className="space-y-2 sm:space-y-3 min-w-0">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-background/80 px-3 py-1 text-xs font-medium text-muted-foreground w-fit max-w-full">
+              <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" />
+              <span className="truncate">{language === "ar" ? "لوحة مالية موحدة وحديثة" : "Modern unified finance workspace"}</span>
             </div>
             <div className="space-y-2">
-              <h1 className="text-3xl font-bold tracking-tight">{t.title}</h1>
-              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight break-words">{t.title}</h1>
+              <p className="max-w-3xl text-xs sm:text-sm leading-6 text-muted-foreground">
                 {language === "ar"
                   ? "متابعة الإيرادات والمصروفات والرواتب ومالية العملاء من مصدر موحد، مع رسوم أوضح وفلاتر أسهل في الاستخدام."
                   : "Track revenue, expenses, payroll, and client finance from one source of truth with clearer charts and cleaner filters."}
@@ -1633,31 +1741,31 @@ export default function FinancePage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto justify-start sm:justify-end">
             <HasPermission permission="finance:create">
-              <Button className="shadow-sm" onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income">
-                <TrendingUp className="h-4 w-4 me-2" />
-                {t.addIncome}
+              <Button className="shadow-sm flex-1 sm:flex-none min-w-0" onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income">
+                <TrendingUp className="h-4 w-4 me-2 shrink-0" />
+                <span className="truncate">{t.addIncome}</span>
               </Button>
             </HasPermission>
             <HasPermission permission="finance:create">
-              <Button variant="outline" className="bg-background/80 shadow-sm" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense">
-                <TrendingDown className="h-4 w-4 me-2" />
-                {t.addExpense}
+              <Button variant="outline" className="bg-background/80 shadow-sm flex-1 sm:flex-none min-w-0" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense">
+                <TrendingDown className="h-4 w-4 me-2 shrink-0" />
+                <span className="truncate">{t.addExpense}</span>
               </Button>
             </HasPermission>
           </div>
         </div>
 
-        <div className="mt-5 rounded-[24px] border border-border/60 bg-background/80 p-3 shadow-sm">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1.5 text-sm font-medium">
-              <Filter className="h-4 w-4 text-primary" />
-              {language === "ar" ? "الفترة الزمنية" : "Time range"}
+        <div className="mt-4 sm:mt-5 rounded-2xl sm:rounded-[24px] border border-border/60 bg-background/80 p-2.5 sm:p-3 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="inline-flex items-center gap-2 rounded-full bg-muted px-2.5 sm:px-3 py-1.5 text-xs sm:text-sm font-medium w-full sm:w-auto justify-center sm:justify-start">
+              <Filter className="h-4 w-4 text-primary shrink-0" />
+              <span className="truncate">{language === "ar" ? "الفترة الزمنية" : "Time range"}</span>
             </div>
 
             <Select value={filterPeriod} onValueChange={(v) => setFilterPeriod(v)}>
-              <SelectTrigger className="w-[170px] bg-background">
+              <SelectTrigger className="w-full sm:w-[170px] bg-background min-w-0">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1674,12 +1782,13 @@ export default function FinancePage() {
             </Select>
 
             {filterPeriod === "specific-month" && (
-              <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-muted/30 px-2 py-2">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 rounded-2xl border border-border/60 bg-muted/30 px-2 py-2 w-full sm:w-auto">
                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={goToPreviousMonth}
                   data-testid="button-prev-month"
+                  className="shrink-0"
                 >
                   <ChevronRight className="h-4 w-4 rtl:rotate-0 rotate-180" />
                 </Button>
@@ -1690,7 +1799,7 @@ export default function FinancePage() {
                     setSelectedMonth(`${selectedYear}-${String(month).padStart(2, "0")}`);
                   }}
                 >
-                  <SelectTrigger className="w-[140px] bg-background">
+                  <SelectTrigger className="w-[120px] sm:w-[140px] bg-background min-w-0">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1707,7 +1816,7 @@ export default function FinancePage() {
                     setSelectedMonth(`${yearStr}-${String(selectedMonthNum).padStart(2, "0")}`);
                   }}
                 >
-                  <SelectTrigger className="w-[110px] bg-background">
+                  <SelectTrigger className="w-[95px] sm:w-[110px] bg-background min-w-0">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="max-h-[240px]">
@@ -1722,10 +1831,11 @@ export default function FinancePage() {
                   size="icon"
                   onClick={goToNextMonth}
                   data-testid="button-next-month"
+                  className="shrink-0"
                 >
                   <ChevronLeft className="h-4 w-4 rtl:rotate-0 rotate-180" />
                 </Button>
-                <div className="rounded-xl bg-background px-3 py-2 text-sm font-medium text-foreground" data-testid="text-selected-month">
+                <div className="flex-1 sm:flex-none min-w-0 truncate rounded-xl bg-background px-3 py-2 text-xs sm:text-sm font-medium text-foreground text-center sm:text-start" data-testid="text-selected-month">
                   {formatMonthDisplay()}
                 </div>
               </div>
@@ -1736,7 +1846,7 @@ export default function FinancePage() {
                 value={String(selectedFilterYear)}
                 onValueChange={(yearStr) => setSelectedFilterYear(Number(yearStr))}
               >
-                <SelectTrigger className="w-[120px] bg-background">
+                <SelectTrigger className="w-full sm:w-[120px] bg-background min-w-0">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="max-h-[240px]">
@@ -1751,141 +1861,141 @@ export default function FinancePage() {
         </div>
       </section>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-2 rounded-2xl border border-border/60 bg-muted/30 p-2">
-          <TabsTrigger value="overview" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-overview">
-            <DollarSign className="h-4 w-4 me-1 hidden sm:inline" />
-            {t.overview}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 sm:space-y-6">
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1.5 sm:gap-2 rounded-2xl border border-border/60 bg-muted/30 p-1.5 sm:p-2">
+          <TabsTrigger value="overview" className="rounded-xl px-2.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm flex-1 sm:flex-none min-w-0" data-testid="tab-overview">
+            <DollarSign className="h-4 w-4 me-1 hidden sm:inline shrink-0" />
+            <span className="truncate">{t.overview}</span>
           </TabsTrigger>
-          <TabsTrigger value="revenues" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-revenues">
-            <TrendingUp className="h-4 w-4 me-1 hidden sm:inline" />
-            {t.revenues}
+          <TabsTrigger value="revenues" className="rounded-xl px-2.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm flex-1 sm:flex-none min-w-0" data-testid="tab-revenues">
+            <TrendingUp className="h-4 w-4 me-1 hidden sm:inline shrink-0" />
+            <span className="truncate">{t.revenues}</span>
           </TabsTrigger>
-          <TabsTrigger value="expenses" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-expenses">
-            <TrendingDown className="h-4 w-4 me-1 hidden sm:inline" />
-            {t.expenses}
+          <TabsTrigger value="expenses" className="rounded-xl px-2.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm flex-1 sm:flex-none min-w-0" data-testid="tab-expenses">
+            <TrendingDown className="h-4 w-4 me-1 hidden sm:inline shrink-0" />
+            <span className="truncate">{t.expenses}</span>
           </TabsTrigger>
-          <TabsTrigger value="payroll" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-payroll">
-            <Wallet className="h-4 w-4 me-1 hidden sm:inline" />
-            {t.payroll}
+          <TabsTrigger value="payroll" className="rounded-xl px-2.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm flex-1 sm:flex-none min-w-0" data-testid="tab-payroll">
+            <Wallet className="h-4 w-4 me-1 hidden sm:inline shrink-0" />
+            <span className="truncate">{t.payroll}</span>
           </TabsTrigger>
-          <TabsTrigger value="client-finance" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-client-finance">
-            <Users className="h-4 w-4 me-1 hidden sm:inline" />
-            {t.clientFinance}
+          <TabsTrigger value="client-finance" className="rounded-xl px-2.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm flex-1 sm:flex-none min-w-0" data-testid="tab-client-finance">
+            <Users className="h-4 w-4 me-1 hidden sm:inline shrink-0" />
+            <span className="truncate">{t.clientFinance}</span>
           </TabsTrigger>
-          <TabsTrigger value="ledger" className="rounded-xl px-4 py-2.5 data-[state=active]:bg-background data-[state=active]:shadow-sm" data-testid="tab-ledger">
-            <FileText className="h-4 w-4 me-1 hidden sm:inline" />
-            {t.ledger}
+          <TabsTrigger value="ledger" className="rounded-xl px-2.5 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm flex-1 sm:flex-none min-w-0" data-testid="tab-ledger">
+            <FileText className="h-4 w-4 me-1 hidden sm:inline shrink-0" />
+            <span className="truncate">{t.ledger}</span>
           </TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
-        <TabsContent value="overview" className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-            <Card className={PANEL_CARD_CLASS}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+        <TabsContent value="overview" className="space-y-4 sm:space-y-6">
+          <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 w-full min-w-0">
+            <Card className={PANEL_CARD_CLASS + " w-full min-w-0"}>
+              <CardHeader className="flex flex-row items-start justify-between pb-2 gap-2">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground break-words">
                   {t.totalIncome}
                 </CardTitle>
-                <ArrowUpRight className="h-4 w-4 text-green-500" />
+                <ArrowUpRight className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-green-500 shrink-0 mt-0.5" />
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">
+              <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
+                <div className="text-xl sm:text-2xl font-bold text-green-600 break-all">
                   {formatCurrency(overviewTotals.totalIncome)}
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">
+                <p className="mt-1.5 sm:mt-2 text-[10px] sm:text-xs text-muted-foreground">
                   {language === "ar" ? "كل الإيرادات المحسوبة من السجل الموحد" : "All income from the unified ledger"}
                 </p>
               </CardContent>
             </Card>
 
-            <Card className={PANEL_CARD_CLASS}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+            <Card className={PANEL_CARD_CLASS + " w-full min-w-0"}>
+              <CardHeader className="flex flex-row items-start justify-between pb-2 gap-2">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground break-words">
                   {t.totalExpenses}
                 </CardTitle>
-                <ArrowDownRight className="h-4 w-4 text-red-500" />
+                <ArrowDownRight className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-red-500 shrink-0 mt-0.5" />
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-red-600">
+              <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
+                <div className="text-xl sm:text-2xl font-bold text-red-600 break-all">
                   {formatCurrency(overviewTotals.totalExpenses)}
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">
+                <p className="mt-1.5 sm:mt-2 text-[10px] sm:text-xs text-muted-foreground">
                   {language === "ar" ? "تشمل الرواتب والمصروفات التشغيلية" : "Includes payroll and operating expenses"}
                 </p>
               </CardContent>
             </Card>
 
-            <Card className={PANEL_CARD_CLASS}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+            <Card className={PANEL_CARD_CLASS + " w-full min-w-0"}>
+              <CardHeader className="flex flex-row items-start justify-between pb-2 gap-2">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground break-words">
                   {t.netProfit}
                 </CardTitle>
-                <CircleDollarSign className="h-4 w-4 text-primary" />
+                <CircleDollarSign className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-primary shrink-0 mt-0.5" />
               </CardHeader>
-              <CardContent>
-                <div className={`text-2xl font-bold ${overviewTotals.netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+              <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
+                <div className={`text-xl sm:text-2xl font-bold break-all ${overviewTotals.netProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
                   {formatCurrency(overviewTotals.netProfit)}
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">
+                <p className="mt-1.5 sm:mt-2 text-[10px] sm:text-xs text-muted-foreground">
                   {language === "ar" ? "صافي الفرق بين الإيراد والمصروف" : "Net difference between income and expense"}
                 </p>
               </CardContent>
             </Card>
 
-            <Card className={PANEL_CARD_CLASS}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+            <Card className={PANEL_CARD_CLASS + " w-full min-w-0"}>
+              <CardHeader className="flex flex-row items-start justify-between pb-2 gap-2">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground break-words">
                   {t.overdueAmount}
                 </CardTitle>
-                <Calendar className="h-4 w-4 text-orange-500" />
+                <Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-orange-500 shrink-0 mt-0.5" />
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-orange-600">
+              <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
+                <div className="text-xl sm:text-2xl font-bold text-orange-600 break-all">
                   {formatCurrency(overviewTotals.overdueAmount)}
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {language === "ar" ? "إجمالي المستحقات المتأخرة على العملاء" : "Total overdue client receivables"}
+                <p className="mt-1.5 sm:mt-2 text-[10px] sm:text-xs text-muted-foreground">
+                  {language === "ar" ? "إجمالي الرصيد المستحق على العملاء" : "Total client outstanding balance"}
                 </p>
               </CardContent>
             </Card>
 
-            <Card className={PANEL_CARD_CLASS}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+            <Card className={PANEL_CARD_CLASS + " w-full min-w-0"}>
+              <CardHeader className="flex flex-row items-start justify-between pb-2 gap-2">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground break-words">
                   {t.payrollRemaining}
                 </CardTitle>
-                <Wallet className="h-4 w-4 text-blue-500" />
+                <Wallet className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-blue-500 shrink-0 mt-0.5" />
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-blue-600">
+              <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
+                <div className="text-xl sm:text-2xl font-bold text-blue-600 break-all">
                   {formatCurrency(overviewTotals.payrollRemaining)}
                 </div>
-                <p className="mt-2 text-xs text-muted-foreground">
+                <p className="mt-1.5 sm:mt-2 text-[10px] sm:text-xs text-muted-foreground">
                   {language === "ar" ? "المتبقي صرفه للموظفين في الفترة المحددة" : "Remaining payroll in the selected period"}
                 </p>
               </CardContent>
             </Card>
 
-            <Card className={PANEL_CARD_CLASS}>
-              <CardHeader className="flex flex-row items-center justify-between pb-2 gap-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+            <Card className={PANEL_CARD_CLASS + " w-full min-w-0"}>
+              <CardHeader className="flex flex-row items-start justify-between pb-2 gap-2">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground break-words">
                   {t.expectedRevenue}
                 </CardTitle>
-                <TrendingUp className="h-4 w-4 text-purple-500" />
+                <TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-purple-500 shrink-0 mt-0.5" />
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-purple-600">
+              <CardContent className="p-4 sm:p-6 pt-0 sm:pt-0">
+                <div className="text-xl sm:text-2xl font-bold text-purple-600 break-all">
                   {formatCurrency(overviewTotals.expectedRevenue)}
                 </div>
-                <p className="text-xs text-muted-foreground">
+                <p className="mt-1.5 sm:mt-2 text-[10px] sm:text-xs text-muted-foreground">
                   {language === "ar" ? "من الخدمات المنجزة غير المدفوعة" : "From completed unpaid services"}
                 </p>
               </CardContent>
             </Card>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-2">
+          <div className="grid gap-4 sm:gap-6 grid-cols-1 xl:grid-cols-2 w-full min-w-0">
             <Card className={PANEL_CARD_CLASS}>
               <CardHeader className="flex flex-row items-center justify-between gap-2">
                 <div className="space-y-1">
@@ -1924,7 +2034,7 @@ export default function FinancePage() {
                           ))}
                         </Pie>
                         <RechartsTooltip
-                          formatter={(value: number, _name, item: any) => [
+                          formatter={(value: number, _name, item: { payload?: { nameAr?: string; name?: string } }) => [
                             formatCurrency(Number(value)),
                             item?.payload?.nameAr || item?.payload?.name,
                           ]}
@@ -1994,7 +2104,7 @@ export default function FinancePage() {
                           ))}
                         </Pie>
                         <RechartsTooltip
-                          formatter={(value: number, _name, item: any) => [
+                          formatter={(value: number, _name, item: { payload?: { name?: string } }) => [
                             formatCurrency(Number(value)),
                             item?.payload?.name,
                           ]}
@@ -2031,25 +2141,25 @@ export default function FinancePage() {
 
         {/* Revenues Tab */}
         <TabsContent value="revenues">
-          <Card className={PANEL_CARD_CLASS}>
-            <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
-              <div className="space-y-1">
-                <CardTitle>{t.revenues}</CardTitle>
-                <p className="text-sm text-muted-foreground">
+          <Card className={PANEL_CARD_CLASS + " w-full min-w-0"}>
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 flex-wrap">
+              <div className="space-y-1 min-w-0">
+                <CardTitle className="text-base sm:text-lg">{t.revenues}</CardTitle>
+                <p className="text-xs sm:text-sm text-muted-foreground">
                   {language === "ar" ? "عرض تفصيلي للإيرادات مع فلاتر أوضح وإجمالي مباشر." : "Detailed revenue view with cleaner filters and direct totals."}
                 </p>
               </div>
               <HasPermission permission="finance:create">
-                <Button size="sm" onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income-tab">
-                  <Plus className="h-4 w-4 me-1" />
-                  {t.addIncome}
+                <Button size="sm" onClick={() => setIncomeModalOpen(true)} data-testid="button-add-income-tab" className="w-full sm:w-auto">
+                  <Plus className="h-4 w-4 me-1 shrink-0" />
+                  <span className="truncate">{t.addIncome}</span>
                 </Button>
               </HasPermission>
             </CardHeader>
             <CardContent>
               <div className={`${FILTER_BAR_CLASS} mb-4`}>
                 <Select value={revenueTypeFilter} onValueChange={setRevenueTypeFilter}>
-                  <SelectTrigger className="w-[160px]">
+                  <SelectTrigger className="w-full sm:w-[160px] min-w-0">
                     <SelectValue placeholder={t.type} />
                   </SelectTrigger>
                   <SelectContent>
@@ -2059,33 +2169,33 @@ export default function FinancePage() {
                   </SelectContent>
                 </Select>
                 <Select value={revenueClientFilter} onValueChange={setRevenueClientFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px] min-w-0">
                     <SelectValue placeholder={t.client} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
                     {clients.map(client => (
                       <SelectItem key={client.id} value={client.id}>
-                        {client.name}
+                        <span className="truncate block max-w-[200px]">{client.name}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Select value={revenueServiceFilter} onValueChange={setRevenueServiceFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px] min-w-0">
                     <SelectValue placeholder={t.service} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
                     {allServices.map(service => (
                       <SelectItem key={service.id} value={service.id}>
-                        {language === "ar" ? service.serviceName : service.serviceNameEn || service.serviceName}
+                        <span className="truncate block max-w-[200px]">{language === "ar" ? service.serviceName : service.serviceNameEn || service.serviceName}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Select value={revenueCurrencyFilter} onValueChange={setRevenueCurrencyFilter}>
-                  <SelectTrigger className="w-[120px]">
+                  <SelectTrigger className="w-full sm:w-[120px] min-w-0">
                     <SelectValue placeholder="Currency" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2095,29 +2205,31 @@ export default function FinancePage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button type="button" variant="ghost" className="ms-auto" onClick={resetRevenueFilters}>
+                <Button type="button" variant="ghost" className="ms-auto w-full sm:w-auto" onClick={resetRevenueFilters}>
                   {language === "ar" ? "إعادة ضبط الفلاتر" : "Reset Filters"}
                 </Button>
               </div>
               {filteredRevenues.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">{t.noTransactions}</div>
+                <div className="text-center py-8 text-muted-foreground px-4">{t.noTransactions}</div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t.client}</TableHead>
-                      <TableHead>{t.service}</TableHead>
-                      <TableHead>{t.originalAmount}</TableHead>
-                      <TableHead>{t.convertedAmount}</TableHead>
-                      <TableHead>{t.date}</TableHead>
-                      <TableHead>{t.actions}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
+                <div className="w-full overflow-x-auto border rounded-xl">
+                  <Table className="min-w-[700px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="whitespace-nowrap">{t.client}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.service}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.originalAmount}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.convertedAmount}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.date}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.actions}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                     {filteredRevenues.map(item => {
                       const isClientPayment = item.source === "client_payment";
                       const directTransaction = transactionsById.get(item.recordId);
                       const clientPayment = clientPaymentsById.get(item.recordId);
+                      const clientPaymentLockReason = getClientPaymentLockReason(clientPayment);
                       return (
                         <TableRow key={item.id} data-testid={`row-income-${item.id}`}>
                           <TableCell>{item.clientName}</TableCell>
@@ -2138,8 +2250,8 @@ export default function FinancePage() {
                                     size="icon"
                                     variant="ghost"
                                     onClick={() => clientPayment && openClientPaymentEdit(clientPayment)}
-                                    disabled={!item.canEdit || !clientPayment}
-                                    title={item.lockedReason || undefined}
+                                    disabled={!item.canEdit || !clientPayment || !!clientPaymentLockReason}
+                                    title={clientPaymentLockReason || item.lockedReason || undefined}
                                     data-testid={`button-edit-payment-${item.id}`}
                                   >
                                     <Pencil className="h-4 w-4" />
@@ -2148,8 +2260,8 @@ export default function FinancePage() {
                                     size="icon"
                                     variant="ghost"
                                     onClick={() => clientPayment && confirmDelete(() => deleteClientPaymentMutation.mutate(clientPayment.id))}
-                                    disabled={!item.canDelete || !clientPayment}
-                                    title={item.lockedReason || undefined}
+                                    disabled={!item.canDelete || !clientPayment || !!clientPaymentLockReason}
+                                    title={clientPaymentLockReason || item.lockedReason || undefined}
                                     data-testid={`button-delete-payment-${item.id}`}
                                   >
                                     <Trash2 className="h-4 w-4 text-red-500" />
@@ -2194,6 +2306,7 @@ export default function FinancePage() {
                     </TableRow>
                   </TableBody>
                 </Table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -2201,25 +2314,25 @@ export default function FinancePage() {
 
         {/* Expenses Tab */}
         <TabsContent value="expenses">
-          <Card className={PANEL_CARD_CLASS}>
-            <CardHeader className="flex flex-row items-center justify-between gap-2 flex-wrap">
-              <div className="space-y-1">
-                <CardTitle>{t.expenses}</CardTitle>
-                <p className="text-sm text-muted-foreground">
+          <Card className={PANEL_CARD_CLASS + " w-full min-w-0"}>
+            <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-2 flex-wrap">
+              <div className="space-y-1 min-w-0">
+                <CardTitle className="text-base sm:text-lg">{t.expenses}</CardTitle>
+                <p className="text-xs sm:text-sm text-muted-foreground">
                   {language === "ar" ? "فصل أوضح للمصروفات حسب الفئة والعملة والجهة المرتبطة." : "A clearer expense breakdown by category, currency, and linked entities."}
                 </p>
               </div>
               <HasPermission permission="finance:create">
-                <Button size="sm" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense-tab">
-                  <Plus className="h-4 w-4 me-1" />
-                  {t.addExpense}
+                <Button size="sm" onClick={() => setExpenseModalOpen(true)} data-testid="button-add-expense-tab" className="w-full sm:w-auto">
+                  <Plus className="h-4 w-4 me-1 shrink-0" />
+                  <span className="truncate">{t.addExpense}</span>
                 </Button>
               </HasPermission>
             </CardHeader>
             <CardContent>
               <div className={`${FILTER_BAR_CLASS} mb-4`}>
                 <Select value={expenseCategoryFilter} onValueChange={setExpenseCategoryFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px] min-w-0">
                     <SelectValue placeholder={t.category} />
                   </SelectTrigger>
                   <SelectContent>
@@ -2232,33 +2345,33 @@ export default function FinancePage() {
                   </SelectContent>
                 </Select>
                 <Select value={expenseClientFilter} onValueChange={setExpenseClientFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px] min-w-0">
                     <SelectValue placeholder={t.client} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
                     {clients.map(client => (
                       <SelectItem key={client.id} value={client.id}>
-                        {client.name}
+                        <span className="truncate block max-w-[200px]">{client.name}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Select value={expenseServiceFilter} onValueChange={setExpenseServiceFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px] min-w-0">
                     <SelectValue placeholder={t.service} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
                     {allServices.map(service => (
                       <SelectItem key={service.id} value={service.id}>
-                        {language === "ar" ? service.serviceName : service.serviceNameEn || service.serviceName}
+                        <span className="truncate block max-w-[200px]">{language === "ar" ? service.serviceName : service.serviceNameEn || service.serviceName}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Select value={expenseCurrencyFilter} onValueChange={setExpenseCurrencyFilter}>
-                  <SelectTrigger className="w-[120px]">
+                  <SelectTrigger className="w-full sm:w-[120px] min-w-0">
                     <SelectValue placeholder="Currency" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2268,100 +2381,103 @@ export default function FinancePage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button type="button" variant="ghost" className="ms-auto" onClick={resetExpenseFilters}>
+                <Button type="button" variant="ghost" className="ms-auto w-full sm:w-auto" onClick={resetExpenseFilters}>
                   {language === "ar" ? "إعادة ضبط الفلاتر" : "Reset Filters"}
                 </Button>
               </div>
               {filteredExpenses.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">{t.noTransactions}</div>
+                <div className="text-center py-8 text-muted-foreground px-4">{t.noTransactions}</div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t.category}</TableHead>
-                      <TableHead>{t.employee}</TableHead>
-                      <TableHead>{t.description}</TableHead>
-                      <TableHead>{t.originalAmount}</TableHead>
-                      <TableHead>{t.convertedAmount}</TableHead>
-                      <TableHead>{t.date}</TableHead>
-                      <TableHead>{t.actions}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredExpenses.map(tx => (
-                      <TableRow key={tx.id} data-testid={`row-expense-${tx.id}`}>
-                        <TableCell>
-                          <Badge variant="secondary">{getCategoryLabel(tx.category)}</Badge>
-                        </TableCell>
-                        <TableCell>{tx.employeeName}</TableCell>
-                        <TableCell>{tx.description}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{formatCurrency(tx.originalAmount, tx.originalCurrency)}</Badge>
-                        </TableCell>
-                        <TableCell className="font-medium text-red-600">
-                        {formatCurrency(tx.convertedAmount)}
-                      </TableCell>
-                        <TableCell>{tx.date}</TableCell>
-                        <TableCell>
-                          <HasPermission permission="finance:edit">
-                          <div className="flex gap-1">
-                            {(() => {
-                              const directTransaction = transactionsById.get(tx.recordId);
-                              const payrollPayment = payrollPaymentsById.get(tx.recordId);
-                              return (
-                                <>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => {
-                                if (tx.source === "payroll_payment") {
-                                  payrollPayment && openPayrollPaymentEdit(payrollPayment);
-                                  return;
-                                }
-                                directTransaction && openExpenseEdit(directTransaction);
-                              }}
-                              disabled={!tx.canEdit || (tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
-                              title={tx.lockedReason || undefined}
-                              data-testid={`button-edit-expense-${tx.id}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => {
-                                confirmDelete(() => {
-                                  if (tx.source === "payroll_payment" && payrollPayment) {
-                                    deletePayrollPaymentMutation.mutate(payrollPayment.id);
-                                  } else if (directTransaction) {
-                                    deleteTransactionMutation.mutate(directTransaction.id);
-                                  }
-                                });
-                              }}
-                              disabled={!tx.canDelete || (tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
-                              title={tx.lockedReason || undefined}
-                              data-testid={`button-delete-expense-${tx.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-red-500" />
-                            </Button>
-                                </>
-                              );
-                            })()}
-                          </div>
-                          </HasPermission>
-                        </TableCell>
+                <div className="w-full overflow-x-auto border rounded-xl">
+                  <Table className="min-w-[800px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="whitespace-nowrap">{t.category}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.employee}</TableHead>
+                        <TableHead className="whitespace-nowrap max-w-[200px]">{t.description}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.originalAmount}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.convertedAmount}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.date}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.actions}</TableHead>
                       </TableRow>
-                    ))}
-                    <TableRow className="bg-muted/50 font-medium">
-                      <TableCell colSpan={3} className="text-right">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
-                      <TableCell colSpan={1}></TableCell>
-                      <TableCell className="text-red-600">
-                        {formatCurrency(filteredExpenses.reduce((sum, tx) => sum + tx.convertedAmount, 0))}
-                      </TableCell>
-                      <TableCell colSpan={2}></TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredExpenses.map(tx => (
+                        <TableRow key={tx.id} data-testid={`row-expense-${tx.id}`}>
+                          <TableCell>
+                            <Badge variant="secondary">{getCategoryLabel(tx.category)}</Badge>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">{tx.employeeName}</TableCell>
+                          <TableCell className="max-w-[200px]">
+                            <span className="truncate block max-w-full" title={tx.description}>{tx.description}</span>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{formatCurrency(tx.originalAmount, tx.originalCurrency)}</Badge>
+                          </TableCell>
+                          <TableCell className="font-medium text-red-600 whitespace-nowrap">
+                            {formatCurrency(tx.convertedAmount)}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">{tx.date}</TableCell>
+                          <TableCell>
+                            <HasPermission permission="finance:edit">
+                              <div className="flex gap-1 shrink-0">
+                                {(() => {
+                                  const directTransaction = transactionsById.get(tx.recordId);
+                                  const payrollPayment = payrollPaymentsById.get(tx.recordId);
+                                  return (
+                                    <>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        onClick={() => {
+                                          if (tx.source === "payroll_payment") {
+                                            payrollPayment && openPayrollPaymentEdit(payrollPayment);
+                                            return;
+                                          }
+                                          directTransaction && openExpenseEdit(directTransaction);
+                                        }}
+                                        disabled={!tx.canEdit || (tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
+                                        title={tx.lockedReason || undefined}
+                                        data-testid={`button-edit-expense-${tx.id}`}
+                                      >
+                                        <Pencil className="h-4 w-4 shrink-0" />
+                                      </Button>
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        onClick={() => {
+                                          confirmDelete(() => {
+                                            if (tx.source === "payroll_payment" && payrollPayment) {
+                                              deletePayrollPaymentMutation.mutate(payrollPayment.id);
+                                            } else if (directTransaction) {
+                                              deleteTransactionMutation.mutate(directTransaction.id);
+                                            }
+                                          });
+                                        }}
+                                        disabled={!tx.canDelete || (tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
+                                        title={tx.lockedReason || undefined}
+                                        data-testid={`button-delete-expense-${tx.id}`}
+                                      >
+                                        <Trash2 className="h-4 w-4 text-red-500 shrink-0" />
+                                      </Button>
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            </HasPermission>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="bg-muted/50 font-medium">
+                        <TableCell colSpan={4} className="text-right whitespace-nowrap">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
+                        <TableCell className="text-red-600 whitespace-nowrap">
+                          {formatCurrency(filteredExpenses.reduce((sum, tx) => sum + tx.convertedAmount, 0))}
+                        </TableCell>
+                        <TableCell colSpan={2}></TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -2369,26 +2485,26 @@ export default function FinancePage() {
 
         {/* Payroll Tab - Redesigned with employee selector */}
         <TabsContent value="payroll">
-          <div className="grid gap-6 lg:grid-cols-3">
+          <div className="grid gap-4 sm:gap-6 grid-cols-1 lg:grid-cols-3 w-full min-w-0">
             {/* Employee Selector */}
-            <Card className={`lg:col-span-1 ${PANEL_CARD_CLASS}`}>
-              <CardHeader>
-                <CardTitle>{t.selectEmployee}</CardTitle>
+            <Card className={`lg:col-span-1 ${PANEL_CARD_CLASS} w-full min-w-0`}>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base sm:text-lg">{t.selectEmployee}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
                 {employees.length === 0 ? (
-                  <div className="text-center py-4 text-muted-foreground">{t.noEmployees}</div>
+                  <div className="text-center py-4 text-muted-foreground px-4">{t.noEmployees}</div>
                 ) : (
                   <>
                     {/* All employees summary option */}
                     <Button
                       variant={selectedPayrollEmployee === null ? "default" : "outline"}
-                      className="w-full justify-start"
+                      className="w-full justify-start min-h-[44px]"
                       onClick={() => setSelectedPayrollEmployee(null)}
                       data-testid="button-all-employees"
                     >
-                      <Users className="h-4 w-4 me-2" />
-                      {t.allEmployees}
+                      <Users className="h-4 w-4 me-2 shrink-0" />
+                      <span className="truncate text-left">{t.allEmployees}</span>
                     </Button>
                     
                     {employees.map(emp => {
@@ -2397,13 +2513,13 @@ export default function FinancePage() {
                         <Button
                           key={emp.id}
                           variant={selectedPayrollEmployee === emp.id ? "default" : "outline"}
-                          className="w-full justify-between"
+                          className="w-full justify-between min-h-[44px] gap-2"
                           onClick={() => setSelectedPayrollEmployee(emp.id)}
                           data-testid={`button-employee-${emp.id}`}
                         >
-                          <span>{language === "ar" ? emp.name : emp.nameEn || emp.name}</span>
+                          <span className="truncate text-left">{language === "ar" ? emp.name : emp.nameEn || emp.name}</span>
                           {empData && empData.remaining > 0 && (
-                            <Badge variant="destructive" className="ms-2">
+                            <Badge variant="destructive" className="ms-1 shrink-0">
                               {formatCurrency(empData.remaining)}
                             </Badge>
                           )}
@@ -2416,9 +2532,9 @@ export default function FinancePage() {
             </Card>
 
             {/* Employee Details or All Employees Table */}
-            <Card className={`lg:col-span-2 ${PANEL_CARD_CLASS}`}>
-              <CardHeader>
-                <CardTitle>
+            <Card className={`lg:col-span-2 ${PANEL_CARD_CLASS} w-full min-w-0`}>
+              <CardHeader className="pb-3 flex-wrap">
+                <CardTitle className="text-base sm:text-lg break-words min-w-0">
                   {selectedPayrollEmployee 
                     ? getEmployeeName(selectedPayrollEmployee)
                     : t.allEmployees
@@ -2429,22 +2545,22 @@ export default function FinancePage() {
                 {selectedPayrollEmployee && selectedEmployeePayroll && (
                   <>
                     {/* Single employee details */}
-                    <div className="space-y-6">
+                    <div className="space-y-4 sm:space-y-6">
                     {/* Pay type and salary info */}
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="p-4 rounded-lg bg-muted/50">
-                        <div className="text-sm text-muted-foreground mb-1">{t.payType}</div>
+                    <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-2">
+                      <div className="p-3 sm:p-4 rounded-lg bg-muted/50 min-w-0">
+                        <div className="text-xs sm:text-sm text-muted-foreground mb-1">{t.payType}</div>
                         <div className="font-medium">
                           <Badge variant="outline">
                             {selectedEmployeePayroll.payType === "per_project" ? t.perProject : t.monthly}
                           </Badge>
                         </div>
                       </div>
-                      <div className="p-4 rounded-lg bg-muted/50">
-                        <div className="text-sm text-muted-foreground mb-1">
+                      <div className="p-3 sm:p-4 rounded-lg bg-muted/50 min-w-0">
+                        <div className="text-xs sm:text-sm text-muted-foreground mb-1">
                           {selectedEmployeePayroll.payType === "monthly" ? t.salary : t.rate}
                         </div>
-                        <div className="font-medium">
+                        <div className="font-medium break-all">
                           {selectedEmployeePayroll.payType === "monthly"
                             ? (selectedEmployeePayroll.monthlyAmount
                               ? formatCurrency(selectedEmployeePayroll.monthlyAmount, selectedEmployeePayroll.salaryCurrency)
@@ -2462,22 +2578,22 @@ export default function FinancePage() {
                     </div>
 
                     {/* Payment summary cards */}
-                    <div className="grid gap-4 sm:grid-cols-3">
-                      <div className="p-4 rounded-lg border">
-                        <div className="text-sm text-muted-foreground mb-1">{t.totalDue}</div>
-                        <div className="text-xl font-bold">
+                    <div className="grid gap-3 sm:gap-4 grid-cols-1 sm:grid-cols-3">
+                      <div className="p-3 sm:p-4 rounded-lg border min-w-0">
+                        <div className="text-xs sm:text-sm text-muted-foreground mb-1">{t.totalDue}</div>
+                        <div className="text-lg sm:text-xl font-bold break-all">
                           {formatCurrency(selectedEmployeePayroll.expectedSalary)}
                         </div>
                       </div>
-                      <div className="p-4 rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20">
-                        <div className="text-sm text-muted-foreground mb-1">{t.paidThisMonth}</div>
-                        <div className="text-xl font-bold text-green-600">
+                      <div className="p-3 sm:p-4 rounded-lg border border-green-200 bg-green-50 dark:bg-green-950/20 min-w-0">
+                        <div className="text-xs sm:text-sm text-muted-foreground mb-1">{t.paidThisMonth}</div>
+                        <div className="text-lg sm:text-xl font-bold text-green-600 break-all">
                           {formatCurrency(selectedEmployeePayroll.paidThisMonth)}
                         </div>
                       </div>
-                      <div className={`p-4 rounded-lg border ${selectedEmployeePayroll.remaining > 0 ? "border-orange-200 bg-orange-50 dark:bg-orange-950/20" : "border-green-200 bg-green-50 dark:bg-green-950/20"}`}>
-                        <div className="text-sm text-muted-foreground mb-1">{t.remaining}</div>
-                        <div className={`text-xl font-bold ${selectedEmployeePayroll.remaining > 0 ? "text-orange-600" : "text-green-600"}`}>
+                      <div className={`p-3 sm:p-4 rounded-lg border min-w-0 ${selectedEmployeePayroll.remaining > 0 ? "border-orange-200 bg-orange-50 dark:bg-orange-950/20" : "border-green-200 bg-green-50 dark:bg-green-950/20"}`}>
+                        <div className="text-xs sm:text-sm text-muted-foreground mb-1">{t.remaining}</div>
+                        <div className={`text-lg sm:text-xl font-bold break-all ${selectedEmployeePayroll.remaining > 0 ? "text-orange-600" : "text-green-600"}`}>
                           {formatCurrency(selectedEmployeePayroll.remaining)}
                         </div>
                       </div>
@@ -2498,9 +2614,10 @@ export default function FinancePage() {
                           });
                         }}
                         data-testid="button-record-payment"
+                        className="w-full sm:w-auto"
                       >
-                        <Plus className="h-4 w-4 me-2" />
-                        {t.recordPayment}
+                        <Plus className="h-4 w-4 me-2 shrink-0" />
+                        <span className="truncate">{t.recordPayment}</span>
                       </Button>
                     )}
 
@@ -2508,58 +2625,62 @@ export default function FinancePage() {
                     {selectedEmployeePayroll.payments.length > 0 && (
                       <div>
                         <h4 className="font-medium mb-3">{t.paidThisMonth}</h4>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>{t.date}</TableHead>
-                              <TableHead>{t.amount}</TableHead>
-                              <TableHead>{t.description}</TableHead>
-                              <TableHead>{t.actions}</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {selectedEmployeePayroll.payments.map(payment => (
-                              <TableRow key={payment.id}>
-                                <TableCell>{payment.paymentDate}</TableCell>
-                                <TableCell>
-                                  <div className="flex flex-col">
-                                    <span className="font-medium">
-                                      {formatCurrency(convertAmount(payment.amount, payment.currency as Currency, displayCurrency))}
-                                    </span>
-                                    {payment.currency !== displayCurrency && (
-                                      <span className="text-xs text-muted-foreground">
-                                        {formatCurrency(payment.amount, payment.currency as Currency)}
-                                      </span>
-                                    )}
-                                  </div>
-                                </TableCell>
-                                <TableCell>{payment.notes || "-"}</TableCell>
-                                <TableCell>
-                                  <HasPermission permission="finance:edit">
-                                  <div className="flex gap-1">
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      onClick={() => openPayrollPaymentEdit(payment)}
-                                      data-testid={`button-edit-payroll-${payment.id}`}
-                                    >
-                                      <Pencil className="h-4 w-4" />
-                                    </Button>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      onClick={() => confirmDelete(() => deletePayrollPaymentMutation.mutate(payment.id))}
-                                      data-testid={`button-delete-payroll-${payment.id}`}
-                                    >
-                                      <Trash2 className="h-4 w-4 text-red-500" />
-                                    </Button>
-                                  </div>
-                                  </HasPermission>
-                                </TableCell>
+                        <div className="w-full overflow-x-auto border rounded-xl">
+                          <Table className="min-w-[500px]">
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="whitespace-nowrap">{t.date}</TableHead>
+                                <TableHead className="whitespace-nowrap">{t.amount}</TableHead>
+                                <TableHead className="whitespace-nowrap max-w-[200px]">{t.description}</TableHead>
+                                <TableHead className="whitespace-nowrap">{t.actions}</TableHead>
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                            </TableHeader>
+                            <TableBody>
+                              {selectedEmployeePayroll.payments.map(payment => (
+                                <TableRow key={payment.id}>
+                                  <TableCell className="whitespace-nowrap">{payment.paymentDate}</TableCell>
+                                  <TableCell className="whitespace-nowrap">
+                                    <div className="flex flex-col min-w-0">
+                                      <span className="font-medium break-all">
+                                        {formatCurrency(convertAmount(payment.amount, payment.currency as Currency, displayCurrency))}
+                                      </span>
+                                      {payment.currency !== displayCurrency && (
+                                        <span className="text-xs text-muted-foreground break-all">
+                                          {formatCurrency(payment.amount, payment.currency as Currency)}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell className="max-w-[200px]">
+                                    <span className="truncate block max-w-full" title={payment.notes || ""}>{payment.notes || "-"}</span>
+                                  </TableCell>
+                                  <TableCell>
+                                    <HasPermission permission="finance:edit">
+                                      <div className="flex gap-1 shrink-0">
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          onClick={() => openPayrollPaymentEdit(payment)}
+                                          data-testid={`button-edit-payroll-${payment.id}`}
+                                        >
+                                          <Pencil className="h-4 w-4 shrink-0" />
+                                        </Button>
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          onClick={() => confirmDelete(() => deletePayrollPaymentMutation.mutate(payment.id))}
+                                          data-testid={`button-delete-payroll-${payment.id}`}
+                                        >
+                                          <Trash2 className="h-4 w-4 text-red-500 shrink-0" />
+                                        </Button>
+                                      </div>
+                                    </HasPermission>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
                       </div>
                     )}
                     </div>
@@ -2570,20 +2691,20 @@ export default function FinancePage() {
                     {/* All employees table */}
                     <div className={`${FILTER_BAR_CLASS} mb-4`}>
                     <Select value={payrollEmployeeFilter} onValueChange={setPayrollEmployeeFilter}>
-                      <SelectTrigger className="w-[200px]">
+                      <SelectTrigger className="w-full sm:w-[200px] min-w-0">
                         <SelectValue placeholder={t.employee} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
                         {employees.map(emp => (
                           <SelectItem key={emp.id} value={emp.id}>
-                            {language === "ar" ? emp.name : emp.nameEn || emp.name}
+                            <span className="truncate block max-w-[200px]">{language === "ar" ? emp.name : emp.nameEn || emp.name}</span>
                           </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                     <Select value={payrollPayTypeFilter} onValueChange={setPayrollPayTypeFilter}>
-                      <SelectTrigger className="w-[140px]">
+                      <SelectTrigger className="w-full sm:w-[140px] min-w-0">
                         <SelectValue placeholder={t.payType} />
                       </SelectTrigger>
                       <SelectContent>
@@ -2593,7 +2714,7 @@ export default function FinancePage() {
                       </SelectContent>
                     </Select>
                     <Select value={payrollCurrencyFilter} onValueChange={setPayrollCurrencyFilter}>
-                      <SelectTrigger className="w-[120px]">
+                      <SelectTrigger className="w-full sm:w-[120px] min-w-0">
                         <SelectValue placeholder="Currency" />
                       </SelectTrigger>
                       <SelectContent>
@@ -2603,87 +2724,96 @@ export default function FinancePage() {
                         ))}
                       </SelectContent>
                     </Select>
-                    <Button type="button" variant="ghost" className="ms-auto" onClick={resetPayrollFilters}>
+                    <Button type="button" variant="ghost" className="ms-auto w-full sm:w-auto" onClick={resetPayrollFilters}>
                       {language === "ar" ? "إعادة ضبط الفلاتر" : "Reset Filters"}
                     </Button>
                   </div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t.employee}</TableHead>
-                        <TableHead>{t.payType}</TableHead>
-                        <TableHead>{t.salary}</TableHead>
-                        <TableHead>{t.paidThisMonth}</TableHead>
-                        <TableHead>{t.remaining}</TableHead>
-                        <TableHead></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredPayrollData.map(({ employee, payType, monthlyAmount, rateAmount, salaryCurrency, rateUnitsCount, paidThisMonth, remaining }) => (
-                        <TableRow key={employee.id} data-testid={`row-payroll-${employee.id}`}>
-                          <TableCell className="font-medium">
-                            {language === "ar" ? employee.name : employee.nameEn || employee.name}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">
-                              {payType === "per_project" ? t.perProject : t.monthly}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            {payType === "monthly"
-                              ? (monthlyAmount ? formatCurrency(convertAmount(monthlyAmount, salaryCurrency as Currency, displayCurrency)) : "-")
-                              : (rateAmount ? formatCurrency(convertAmount(rateAmount, salaryCurrency as Currency, displayCurrency)) : "-")}
-                            {payType !== "monthly" && (
-                              <div className="text-xs text-muted-foreground">
-                                {rateUnitsCount} {t.services}
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-green-600">
-                            {formatCurrency(paidThisMonth)}
-                          </TableCell>
-                          <TableCell className={remaining > 0 ? "text-orange-600" : "text-green-600"}>
-                            {formatCurrency(remaining)}
-                          </TableCell>
-                          <TableCell>
-                            {remaining > 0 && (
-                              <HasPermission permission="finance:create">
-                              <Button 
-                                size="sm" 
-                                variant="outline"
-                                onClick={() => {
-                                  setPaymentModalEmployee(employee.id);
-                                  const remainingInOriginalCurrency = salaryCurrency === displayCurrency
-                                    ? remaining
-                                    : convertAmount(remaining, displayCurrency, salaryCurrency);
-                                  setPayrollForm({
-                                    amount: String(Math.round(remainingInOriginalCurrency)),
-                                    currency: salaryCurrency,
-                                    notes: "",
-                                  });
-                                }}
-                                data-testid={`button-pay-${employee.id}`}
-                              >
-                                <Plus className="h-4 w-4 me-1" />
-                                {t.recordPayment}
-                              </Button>
-                              </HasPermission>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      <TableRow className="bg-muted/50 font-medium">
-                        <TableCell colSpan={3} className="text-right">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
-                        <TableCell className="text-green-600">
-                          {formatCurrency(filteredPayrollData.reduce((sum, item) => sum + item.paidThisMonth, 0))}
-                        </TableCell>
-                        <TableCell className={filteredPayrollData.reduce((sum, item) => sum + item.remaining, 0) > 0 ? "text-orange-600" : "text-green-600"}>
-                          {formatCurrency(filteredPayrollData.reduce((sum, item) => sum + item.remaining, 0))}
-                        </TableCell>
-                        <TableCell></TableCell>
-                      </TableRow>
-                    </TableBody>
-                    </Table>
+                  {filteredPayrollData.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground px-4">{language === "ar" ? "لا توجد بيانات" : "No data"}</div>
+                  ) : (
+                    <div className="w-full overflow-x-auto border rounded-xl">
+                      <Table className="min-w-[700px]">
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="whitespace-nowrap">{t.employee}</TableHead>
+                            <TableHead className="whitespace-nowrap">{t.payType}</TableHead>
+                            <TableHead className="whitespace-nowrap">{t.salary}</TableHead>
+                            <TableHead className="whitespace-nowrap">{t.paidThisMonth}</TableHead>
+                            <TableHead className="whitespace-nowrap">{t.remaining}</TableHead>
+                            <TableHead className="whitespace-nowrap"></TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {filteredPayrollData.map(({ employee, payType, monthlyAmount, rateAmount, salaryCurrency, rateUnitsCount, paidThisMonth, remaining }) => (
+                            <TableRow key={employee.id} data-testid={`row-payroll-${employee.id}`}>
+                              <TableCell className="font-medium whitespace-nowrap min-w-[150px]">
+                                <span className="truncate block max-w-[200px]">{language === "ar" ? employee.name : employee.nameEn || employee.name}</span>
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap">
+                                <Badge variant="outline">
+                                  {payType === "per_project" ? t.perProject : t.monthly}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap">
+                                <span className="break-all">
+                                  {payType === "monthly"
+                                    ? (monthlyAmount ? formatCurrency(convertAmount(monthlyAmount, salaryCurrency as Currency, displayCurrency)) : "-")
+                                    : (rateAmount ? formatCurrency(convertAmount(rateAmount, salaryCurrency as Currency, displayCurrency)) : "-")}
+                                </span>
+                                {payType !== "monthly" && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {rateUnitsCount} {t.services}
+                                  </div>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-green-600 whitespace-nowrap">
+                                <span className="break-all">{formatCurrency(paidThisMonth)}</span>
+                              </TableCell>
+                              <TableCell className={`whitespace-nowrap ${remaining > 0 ? "text-orange-600" : "text-green-600"}`}>
+                                <span className="break-all">{formatCurrency(remaining)}</span>
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap">
+                                {remaining > 0 && (
+                                  <HasPermission permission="finance:create">
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline"
+                                      onClick={() => {
+                                        setPaymentModalEmployee(employee.id);
+                                        const remainingInOriginalCurrency = salaryCurrency === displayCurrency
+                                          ? remaining
+                                          : convertAmount(remaining, displayCurrency, salaryCurrency);
+                                        setPayrollForm({
+                                          amount: String(Math.round(remainingInOriginalCurrency)),
+                                          currency: salaryCurrency,
+                                          notes: "",
+                                        });
+                                      }}
+                                      data-testid={`button-pay-${employee.id}`}
+                                      className="shrink-0"
+                                    >
+                                      <Plus className="h-4 w-4 me-1 shrink-0" />
+                                      <span className="truncate">{t.recordPayment}</span>
+                                    </Button>
+                                  </HasPermission>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                          <TableRow className="bg-muted/50 font-medium">
+                            <TableCell colSpan={3} className="text-right whitespace-nowrap">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
+                            <TableCell className="text-green-600 whitespace-nowrap">
+                              <span className="break-all">{formatCurrency(filteredPayrollData.reduce((sum, item) => sum + item.paidThisMonth, 0))}</span>
+                            </TableCell>
+                            <TableCell className={filteredPayrollData.reduce((sum, item) => sum + item.remaining, 0) > 0 ? "text-orange-600 whitespace-nowrap" : "text-green-600 whitespace-nowrap"}>
+                              <span className="break-all">{formatCurrency(filteredPayrollData.reduce((sum, item) => sum + item.remaining, 0))}</span>
+                            </TableCell>
+                            <TableCell></TableCell>
+                          </TableRow>
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
                   </>
                 )}
               </CardContent>
@@ -2693,32 +2823,32 @@ export default function FinancePage() {
 
         {/* Client Finance Tab - Enhanced with service details */}
         <TabsContent value="client-finance">
-          <Card className={PANEL_CARD_CLASS}>
-            <CardHeader>
-              <div className="space-y-1">
-                <CardTitle>{t.clientFinance}</CardTitle>
-                <p className="text-sm text-muted-foreground">
-                  {language === "ar" ? "متابعة المبالغ المتوقعة والمدفوعة والمتأخرة لكل عميل." : "Track expected, paid, and overdue amounts for each client."}
+          <Card className={PANEL_CARD_CLASS + " w-full min-w-0"}>
+            <CardHeader className="pb-3 flex-wrap">
+              <div className="space-y-1 min-w-0">
+                <CardTitle className="text-base sm:text-lg">{t.clientFinance}</CardTitle>
+                <p className="text-xs sm:text-sm text-muted-foreground">
+                  {language === "ar" ? "متابعة الرصيد الكلي لكل عميل مع تفاصيل كل خدمة والمدفوع والمتبقي." : "Track each client's balance with service-level paid and remaining details."}
                 </p>
               </div>
             </CardHeader>
             <CardContent>
               <div className={`${FILTER_BAR_CLASS} mb-4`}>
                 <Select value={clientFinanceClientFilter} onValueChange={setClientFinanceClientFilter}>
-                  <SelectTrigger className="w-[200px]">
+                  <SelectTrigger className="w-full sm:w-[200px] min-w-0">
                     <SelectValue placeholder={t.client} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
                     {clients.map(client => (
                       <SelectItem key={client.id} value={client.id}>
-                        {client.name}
+                        <span className="truncate block max-w-[200px]">{client.name}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Select value={clientFinanceStatusFilter} onValueChange={setClientFinanceStatusFilter}>
-                  <SelectTrigger className="w-[160px]">
+                  <SelectTrigger className="w-full sm:w-[160px] min-w-0">
                     <SelectValue placeholder={t.status} />
                   </SelectTrigger>
                   <SelectContent>
@@ -2727,87 +2857,94 @@ export default function FinancePage() {
                     <SelectItem value="paid">{t.paid}</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button type="button" variant="ghost" className="ms-auto" onClick={resetClientFinanceFilters}>
+                <Button type="button" variant="ghost" className="ms-auto w-full sm:w-auto" onClick={resetClientFinanceFilters}>
                   {language === "ar" ? "إعادة ضبط الفلاتر" : "Reset Filters"}
                 </Button>
               </div>
               {filteredClientFinanceData.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">{t.noClients}</div>
+                <div className="text-center py-8 text-muted-foreground px-4">{t.noClients}</div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t.client}</TableHead>
-                      <TableHead>{t.expectedMonthly}</TableHead>
-                      <TableHead>{language === "ar" ? "خدمات منجزة" : "Completed"}</TableHead>
-                      <TableHead>{t.paidMonthly}</TableHead>
-                      <TableHead>{t.due}</TableHead>
-                      <TableHead>{t.status}</TableHead>
-                      <TableHead></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredClientFinanceData.map(({ client, expectedMonthly, expectedOneTime, paidThisMonth, due, isOverdue, isSettled, services }) => (
-                      <TableRow key={client.id} data-testid={`row-client-finance-${client.id}`}>
-                        <TableCell className="font-medium">
-                          {client.name}
-                        </TableCell>
-                        <TableCell>{formatCurrency(expectedMonthly)}</TableCell>
-                        <TableCell className="text-purple-600">{formatCurrency(expectedOneTime)}</TableCell>
-                        <TableCell className="text-green-600">{formatCurrency(paidThisMonth)}</TableCell>
-                        <TableCell className={due > 0 ? "text-orange-600" : "text-green-600"}>
-                          {formatCurrency(due)}
-                        </TableCell>
-                        <TableCell>
-                          {isOverdue ? (
-                            <Badge variant="destructive">{t.overdue}</Badge>
-                          ) : isSettled ? (
-                            <Badge variant="secondary">{t.paid}</Badge>
-                          ) : (
-                            <Badge variant="outline">
-                              {language === "ar" ? "قيد التحصيل" : "Outstanding"}
-                            </Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => setClientDetailsSheet(client.id)}
-                              data-testid={`button-details-${client.id}`}
-                            >
-                              <Package className="h-4 w-4 me-1" />
-                              {t.serviceDetails}
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => {
-                                setIncomeForm({ ...incomeForm, clientId: client.id, serviceId: "" });
-                                setIncomeModalOpen(true);
-                              }}
-                              data-testid={`button-add-payment-${client.id}`}
-                            >
-                              <Plus className="h-4 w-4 me-1" />
-                              {t.addPayment}
-                            </Button>
-                          </div>
-                        </TableCell>
+                <div className="w-full overflow-x-auto border rounded-xl">
+                  <Table className="min-w-[950px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="whitespace-nowrap min-w-[160px]">{t.client}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.expectedMonthly}</TableHead>
+                        <TableHead className="whitespace-nowrap">{language === "ar" ? "خدمات منجزة" : "Completed"}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.paidMonthly}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.due}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.status}</TableHead>
+                        <TableHead className="whitespace-nowrap"></TableHead>
                       </TableRow>
-                    ))}
-                    <TableRow className="bg-muted/50 font-medium">
-                      <TableCell colSpan={3} className="text-right">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
-                      <TableCell className="text-green-600">
-                        {formatCurrency(filteredClientFinanceData.reduce((sum, item) => sum + item.paidThisMonth, 0))}
-                      </TableCell>
-                      <TableCell className={filteredClientFinanceData.reduce((sum, item) => sum + item.due, 0) > 0 ? "text-orange-600" : "text-green-600"}>
-                        {formatCurrency(filteredClientFinanceData.reduce((sum, item) => sum + item.due, 0))}
-                      </TableCell>
-                      <TableCell></TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredClientFinanceData.map(({ client, expectedMonthly, expectedOneTime, paidThisMonth, due, isOverdue, isSettled, totalOutstanding, services }) => (
+                        <TableRow key={client.id} data-testid={`row-client-finance-${client.id}`}>
+                          <TableCell className="font-medium whitespace-nowrap min-w-[160px]">
+                            <span className="truncate block max-w-[200px]">{client.name}</span>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <span className="break-all">{formatCurrency(expectedMonthly)}</span>
+                          </TableCell>
+                          <TableCell className="text-purple-600 whitespace-nowrap">
+                            <span className="break-all">{formatCurrency(expectedOneTime)}</span>
+                          </TableCell>
+                          <TableCell className="text-green-600 whitespace-nowrap">
+                            <span className="break-all">{formatCurrency(paidThisMonth)}</span>
+                          </TableCell>
+                          <TableCell className={`whitespace-nowrap ${due > 0 ? "text-orange-600" : "text-green-600"}`}>
+                            <span className="break-all">{formatCurrency(totalOutstanding || due)}</span>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {isOverdue ? (
+                              <Badge variant="destructive">{t.overdue}</Badge>
+                            ) : isSettled ? (
+                              <Badge variant="secondary">{t.paid}</Badge>
+                            ) : (
+                              <Badge variant="outline">
+                                {language === "ar" ? "قيد التحصيل" : "Outstanding"}
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <div className="flex gap-2 shrink-0 flex-wrap sm:flex-nowrap">
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => setClientDetailsSheet(client.id)}
+                                data-testid={`button-details-${client.id}`}
+                                className="shrink-0"
+                              >
+                                <Package className="h-4 w-4 me-1 shrink-0" />
+                                <span className="truncate">{t.serviceDetails}</span>
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => openNewClientPayment(client.id)}
+                                data-testid={`button-add-payment-${client.id}`}
+                                className="shrink-0"
+                              >
+                                <Plus className="h-4 w-4 me-1 shrink-0" />
+                                <span className="truncate">{t.addPayment}</span>
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="bg-muted/50 font-medium">
+                        <TableCell colSpan={3} className="text-right whitespace-nowrap">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
+                        <TableCell className="text-green-600 whitespace-nowrap">
+                          <span className="break-all">{formatCurrency(filteredClientFinanceData.reduce((sum, item) => sum + item.paidThisMonth, 0))}</span>
+                        </TableCell>
+                        <TableCell className={filteredClientFinanceData.reduce((sum, item) => sum + item.due, 0) > 0 ? "text-orange-600 whitespace-nowrap" : "text-green-600 whitespace-nowrap"}>
+                          <span className="break-all">{formatCurrency(filteredClientFinanceData.reduce((sum, item) => sum + item.due, 0))}</span>
+                        </TableCell>
+                        <TableCell colSpan={2}></TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -2815,11 +2952,11 @@ export default function FinancePage() {
 
         {/* Transactions Ledger Tab */}
         <TabsContent value="ledger">
-          <Card className={PANEL_CARD_CLASS}>
-            <CardHeader>
-              <div className="space-y-1">
-                <CardTitle>{t.ledger}</CardTitle>
-                <p className="text-sm text-muted-foreground">
+          <Card className={PANEL_CARD_CLASS + " w-full min-w-0"}>
+            <CardHeader className="pb-3 flex-wrap">
+              <div className="space-y-1 min-w-0">
+                <CardTitle className="text-base sm:text-lg">{t.ledger}</CardTitle>
+                <p className="text-xs sm:text-sm text-muted-foreground">
                   {language === "ar" ? "السجل المالي الموحد لكل المعاملات والمصادر المشتقة." : "Unified financial ledger for all direct and derived transactions."}
                 </p>
               </div>
@@ -2827,7 +2964,7 @@ export default function FinancePage() {
             <CardContent>
               <div className={`${FILTER_BAR_CLASS} mb-4`}>
                 <Select value={ledgerTypeFilter} onValueChange={setLedgerTypeFilter}>
-                  <SelectTrigger className="w-[140px]">
+                  <SelectTrigger className="w-full sm:w-[140px] min-w-0">
                     <SelectValue placeholder={t.type} />
                   </SelectTrigger>
                   <SelectContent>
@@ -2837,46 +2974,46 @@ export default function FinancePage() {
                   </SelectContent>
                 </Select>
                 <Select value={ledgerCategoryFilter} onValueChange={setLedgerCategoryFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px] min-w-0">
                     <SelectValue placeholder={t.category} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{t.category}</SelectItem>
                     {ledgerCategoryOptions.map(cat => (
                       <SelectItem key={cat.value} value={cat.value}>
-                        {cat.label}
+                        <span className="truncate block max-w-[200px]">{cat.label}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Select value={ledgerClientFilter} onValueChange={setLedgerClientFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px] min-w-0">
                     <SelectValue placeholder={t.linkedClient} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
                     {clients.map(client => (
                       <SelectItem key={client.id} value={client.id}>
-                        {client.name}
+                        <span className="truncate block max-w-[200px]">{client.name}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Select value={ledgerEmployeeFilter} onValueChange={setLedgerEmployeeFilter}>
-                  <SelectTrigger className="w-[180px]">
+                  <SelectTrigger className="w-full sm:w-[180px] min-w-0">
                     <SelectValue placeholder={t.employee} />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">{language === "ar" ? "الكل" : "All"}</SelectItem>
                     {employees.map(emp => (
                       <SelectItem key={emp.id} value={emp.id}>
-                        {language === "ar" ? emp.name : emp.nameEn || emp.name}
+                        <span className="truncate block max-w-[200px]">{language === "ar" ? emp.name : emp.nameEn || emp.name}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <Select value={ledgerCurrencyFilter} onValueChange={setLedgerCurrencyFilter}>
-                  <SelectTrigger className="w-[120px]">
+                  <SelectTrigger className="w-full sm:w-[120px] min-w-0">
                     <SelectValue placeholder="Currency" />
                   </SelectTrigger>
                   <SelectContent>
@@ -2886,107 +3023,115 @@ export default function FinancePage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button type="button" variant="ghost" className="ms-auto" onClick={resetLedgerFilters}>
+                <Button type="button" variant="ghost" className="ms-auto w-full sm:w-auto" onClick={resetLedgerFilters}>
                   {language === "ar" ? "إعادة ضبط الفلاتر" : "Reset Filters"}
                 </Button>
               </div>
               {filteredLedger.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">{t.noTransactions}</div>
+                <div className="text-center py-8 text-muted-foreground px-4">{t.noTransactions}</div>
               ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t.type}</TableHead>
-                      <TableHead>{t.category}</TableHead>
-                      <TableHead>{t.linkedEntity}</TableHead>
-                      <TableHead>{t.originalAmount}</TableHead>
-                      <TableHead>{t.convertedAmount}</TableHead>
-                      <TableHead>{t.date}</TableHead>
-                      <TableHead>{t.actions}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredLedger.map(tx => (
-                      <TableRow key={tx.id} data-testid={`row-ledger-${tx.id}`}>
-                        <TableCell>
-                          <Badge variant={tx.type === "income" ? "default" : "destructive"}>
-                            {tx.type === "income" ? t.income : t.expense}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{tx.category ? getCategoryLabel(tx.category) : "-"}</TableCell>
-                        <TableCell>
-                          {tx.linkedEntity}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{formatCurrency(tx.amount, tx.currency as Currency)}</Badge>
-                        </TableCell>
-                        <TableCell className={`font-medium ${tx.type === "income" ? "text-green-600" : "text-red-600"}`}>
-                          {tx.type === "income" ? "+" : "-"}{formatCurrency(tx.convertedAmount)}
-                        </TableCell>
-                        <TableCell>{tx.date}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            {(() => {
-                              const directTransaction = transactionsById.get(tx.recordId);
-                              const clientPayment = clientPaymentsById.get(tx.recordId);
-                              const payrollPayment = payrollPaymentsById.get(tx.recordId);
-                              return (
-                                <>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => {
-                                if (tx.source === "client_payment" && clientPayment) {
-                                  openClientPaymentEdit(clientPayment);
-                                } else if (tx.source === "payroll_payment" && payrollPayment) {
-                                  openPayrollPaymentEdit(payrollPayment);
-                                } else if (directTransaction) {
-                                  openTransactionEdit(directTransaction);
-                                }
-                              }}
-                              disabled={!tx.canEdit || (tx.source === "client_payment" ? !clientPayment : tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
-                              title={tx.lockedReason || undefined}
-                              data-testid={`button-edit-ledger-${tx.id}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => {
-                                confirmDelete(() => {
-                                  if (tx.source === "client_payment" && clientPayment) {
-                                    deleteClientPaymentMutation.mutate(clientPayment.id);
-                                  } else if (tx.source === "payroll_payment" && payrollPayment) {
-                                    deletePayrollPaymentMutation.mutate(payrollPayment.id);
-                                  } else if (directTransaction) {
-                                    deleteTransactionMutation.mutate(directTransaction.id);
-                                  }
-                                });
-                              }}
-                              disabled={!tx.canDelete || (tx.source === "client_payment" ? !clientPayment : tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
-                              title={tx.lockedReason || undefined}
-                              data-testid={`button-delete-ledger-${tx.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-red-500" />
-                            </Button>
-                                </>
-                              );
-                            })()}
-                          </div>
-                        </TableCell>
+                <div className="w-full overflow-x-auto border rounded-xl">
+                  <Table className="min-w-[850px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="whitespace-nowrap">{t.type}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.category}</TableHead>
+                        <TableHead className="whitespace-nowrap min-w-[150px]">{t.linkedEntity}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.originalAmount}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.convertedAmount}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.date}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.actions}</TableHead>
                       </TableRow>
-                    ))}
-                    <TableRow className="bg-muted/50 font-medium">
-                      <TableCell colSpan={3} className="text-right">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
-                      <TableCell colSpan={1}></TableCell>
-                      <TableCell className={filteredLedger.reduce((sum, tx) => sum + (tx.type === "income" ? tx.convertedAmount : -tx.convertedAmount), 0) >= 0 ? "text-green-600" : "text-red-600"}>
-                        {formatCurrency(filteredLedger.reduce((sum, tx) => sum + (tx.type === "income" ? tx.convertedAmount : -tx.convertedAmount), 0))}
-                      </TableCell>
-                      <TableCell colSpan={2}></TableCell>
-                    </TableRow>
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredLedger.map(tx => (
+                        <TableRow key={tx.id} data-testid={`row-ledger-${tx.id}`}>
+                          <TableCell className="whitespace-nowrap">
+                            <Badge variant={tx.type === "income" ? "default" : "destructive"}>
+                              {tx.type === "income" ? t.income : t.expense}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <span className="truncate block max-w-[150px]" title={tx.category ? getCategoryLabel(tx.category) : "-"}>
+                              {tx.category ? getCategoryLabel(tx.category) : "-"}
+                            </span>
+                          </TableCell>
+                          <TableCell className="min-w-[150px]">
+                            <span className="truncate block max-w-[200px]" title={tx.linkedEntity || ""}>
+                              {tx.linkedEntity}
+                            </span>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <Badge variant="outline">{formatCurrency(tx.amount, tx.currency as Currency)}</Badge>
+                          </TableCell>
+                          <TableCell className={`font-medium whitespace-nowrap ${tx.type === "income" ? "text-green-600" : "text-red-600"}`}>
+                            <span className="break-all">{tx.type === "income" ? "+" : "-"}{formatCurrency(tx.convertedAmount)}</span>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">{tx.date}</TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <div className="flex gap-1 shrink-0">
+                              {(() => {
+                                const directTransaction = transactionsById.get(tx.recordId);
+                                const clientPayment = clientPaymentsById.get(tx.recordId);
+                                const payrollPayment = payrollPaymentsById.get(tx.recordId);
+                                const clientPaymentLockReason = getClientPaymentLockReason(clientPayment);
+                                return (
+                                  <>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      onClick={() => {
+                                        if (tx.source === "client_payment" && clientPayment) {
+                                          openClientPaymentEdit(clientPayment);
+                                        } else if (tx.source === "payroll_payment" && payrollPayment) {
+                                          openPayrollPaymentEdit(payrollPayment);
+                                        } else if (directTransaction) {
+                                          openTransactionEdit(directTransaction);
+                                        }
+                                      }}
+                                      disabled={!tx.canEdit || (tx.source === "client_payment" ? (!clientPayment || !!clientPaymentLockReason) : tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
+                                      title={clientPaymentLockReason || tx.lockedReason || undefined}
+                                      data-testid={`button-edit-ledger-${tx.id}`}
+                                    >
+                                      <Pencil className="h-4 w-4 shrink-0" />
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      onClick={() => {
+                                        confirmDelete(() => {
+                                          if (tx.source === "client_payment" && clientPayment) {
+                                            deleteClientPaymentMutation.mutate(clientPayment.id);
+                                          } else if (tx.source === "payroll_payment" && payrollPayment) {
+                                            deletePayrollPaymentMutation.mutate(payrollPayment.id);
+                                          } else if (directTransaction) {
+                                            deleteTransactionMutation.mutate(directTransaction.id);
+                                          }
+                                        });
+                                      }}
+                                      disabled={!tx.canDelete || (tx.source === "client_payment" ? (!clientPayment || !!clientPaymentLockReason) : tx.source === "payroll_payment" ? !payrollPayment : !directTransaction)}
+                                      title={clientPaymentLockReason || tx.lockedReason || undefined}
+                                      data-testid={`button-delete-ledger-${tx.id}`}
+                                    >
+                                      <Trash2 className="h-4 w-4 text-red-500 shrink-0" />
+                                    </Button>
+                                  </>
+                                );
+                              })()}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="bg-muted/50 font-medium">
+                        <TableCell colSpan={4} className="text-right whitespace-nowrap">{language === "ar" ? "الإجمالي" : "Total"}</TableCell>
+                        <TableCell className={filteredLedger.reduce((sum, tx) => sum + (tx.type === "income" ? tx.convertedAmount : -tx.convertedAmount), 0) >= 0 ? "text-green-600 whitespace-nowrap" : "text-red-600 whitespace-nowrap"}>
+                          <span className="break-all">{formatCurrency(filteredLedger.reduce((sum, tx) => sum + (tx.type === "income" ? tx.convertedAmount : -tx.convertedAmount), 0))}</span>
+                        </TableCell>
+                        <TableCell colSpan={2}></TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -2995,17 +3140,37 @@ export default function FinancePage() {
 
       {/* Client Service Details Sheet */}
       <Sheet open={!!clientDetailsSheet} onOpenChange={(open) => !open && setClientDetailsSheet(null)}>
-        <SheetContent className="sm:max-w-lg overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>{t.serviceDetails}</SheetTitle>
-            <SheetDescription>
+        <SheetContent className="w-[95vw] sm:max-w-lg max-w-full overflow-y-auto p-4 sm:p-6">
+          <SheetHeader className="min-w-0">
+            <SheetTitle className="text-lg sm:text-xl break-words">{t.serviceDetails}</SheetTitle>
+            <SheetDescription className="break-words min-w-0">
               {selectedClientDetails?.client.name}
             </SheetDescription>
           </SheetHeader>
           
-          <div className="mt-6 space-y-4">
+          <div className="mt-4 sm:mt-6 space-y-3 sm:space-y-4 min-w-0">
+            <div className="grid gap-3 grid-cols-1 sm:grid-cols-3">
+              <Card className="w-full min-w-0">
+                <CardContent className="p-4">
+                  <div className="text-xs text-muted-foreground">{language === "ar" ? "إجمالي المدفوع" : "Total Paid"}</div>
+                  <div className="mt-1 text-lg font-semibold break-all">{formatCurrency(selectedClientDetails?.paidOverall || 0)}</div>
+                </CardContent>
+              </Card>
+              <Card className="w-full min-w-0">
+                <CardContent className="p-4">
+                  <div className="text-xs text-muted-foreground">{language === "ar" ? "الرصيد المتبقي" : "Outstanding Balance"}</div>
+                  <div className="mt-1 text-lg font-semibold text-orange-600 break-all">{formatCurrency(selectedClientDetails?.totalOutstanding || 0)}</div>
+                </CardContent>
+              </Card>
+              <Card className="w-full min-w-0">
+                <CardContent className="p-4">
+                  <div className="text-xs text-muted-foreground">{language === "ar" ? "دفعات غير مخصصة" : "Unallocated Payments"}</div>
+                  <div className="mt-1 text-lg font-semibold break-all">{formatCurrency(selectedClientDetails?.unallocatedPaidOverall || 0)}</div>
+                </CardContent>
+              </Card>
+            </div>
             {!Array.isArray(selectedClientDetails?.services) || selectedClientDetails?.services.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">{t.noServices}</div>
+              <div className="text-center py-8 text-muted-foreground px-4">{t.noServices}</div>
             ) : (
               selectedClientDetails.services.map((service, idx) => {
                 const progress = getDeliverableProgress(service);
@@ -3015,72 +3180,109 @@ export default function FinancePage() {
                 
                 return (
                   <Collapsible key={idx} defaultOpen={idx === 0}>
-                    <Card>
-                      <CollapsibleTrigger className="w-full">
-                        <CardHeader className="flex flex-row items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <Package className="h-4 w-4 text-muted-foreground" />
-                            <CardTitle className="text-base">
+                    <Card className="w-full min-w-0">
+                      <CollapsibleTrigger className="w-full text-left">
+                        <CardHeader className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-3 sm:p-4 pb-3 sm:pb-4">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <Package className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                            <CardTitle className="text-sm sm:text-base break-words min-w-0">
                               {language === "ar" ? service.serviceName : service.serviceNameEn || service.serviceName}
                             </CardTitle>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Badge>
-                              {formatCurrency(
-                                convertAmount(service.price || 0, (service.currency || "USD") as Currency, displayCurrency),
-                                displayCurrency
-                              )}
+                          <div className="flex items-center gap-1 sm:gap-2 shrink-0 flex-wrap">
+                            <Badge className="shrink-0">
+                              {formatCurrency(service.convertedAmount || 0, displayCurrency)}
                             </Badge>
-                            <Badge variant="outline">
-                              {formatCurrency(service.price || 0, (service.currency || "USD") as Currency)}
+                            <Badge variant="outline" className="shrink-0">
+                              {formatCurrency(service.amount || 0, (service.currency || "USD") as Currency)}
                             </Badge>
-                            <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform" />
+                            <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform shrink-0" />
                           </div>
                         </CardHeader>
                       </CollapsibleTrigger>
                       <CollapsibleContent>
-                        <CardContent className="pt-0">
+                        <CardContent className="pt-0 p-3 sm:p-4 pt-0 sm:pt-0 min-w-0">
+                          <div className="grid gap-3 grid-cols-1 sm:grid-cols-3 mb-4">
+                            <div className="rounded-lg border p-3 min-w-0">
+                              <div className="text-xs text-muted-foreground">{language === "ar" ? "قيمة الخدمة" : "Service Value"}</div>
+                              <div className="mt-1 font-semibold break-all">{formatCurrency(service.convertedAmount || 0, displayCurrency)}</div>
+                            </div>
+                            <div className="rounded-lg border p-3 min-w-0">
+                              <div className="text-xs text-muted-foreground">{language === "ar" ? "المدفوع" : "Paid"}</div>
+                              <div className="mt-1 font-semibold text-green-600 break-all">{formatCurrency(service.paidOverall || 0, displayCurrency)}</div>
+                            </div>
+                            <div className="rounded-lg border p-3 min-w-0">
+                              <div className="text-xs text-muted-foreground">{language === "ar" ? "المتبقي" : "Remaining"}</div>
+                              <div className="mt-1 font-semibold text-orange-600 break-all">{formatCurrency(service.remaining || 0, displayCurrency)}</div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 mb-4">
+                            <Badge variant="secondary">
+                              {service.billingType === "one_time"
+                                ? (language === "ar" ? "مرة واحدة" : "One Time")
+                                : (language === "ar" ? "متكرر" : "Recurring")}
+                            </Badge>
+                            <Badge variant={service.isSettled ? "secondary" : "outline"}>
+                              {service.isSettled ? t.paid : t.due}
+                            </Badge>
+                            {service.remaining > 0 && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openNewClientPayment(selectedClientDetails.client.id, {
+                                  serviceId: service.serviceId,
+                                  amount: service.remaining,
+                                  currency: displayCurrency,
+                                })}
+                              >
+                                <Plus className="h-4 w-4 me-1 shrink-0" />
+                                <span className="truncate">{t.addPayment}</span>
+                              </Button>
+                            )}
+                          </div>
+
                           {/* Overall progress */}
-                          <div className="mb-4">
-                            <div className="flex justify-between text-sm mb-1">
-                              <span>{t.packageProgress}</span>
-                              <span>{overallProgress}%</span>
+                          <div className="mb-4 min-w-0">
+                            <div className="flex justify-between text-xs sm:text-sm mb-1 gap-2 min-w-0">
+                              <span className="truncate shrink-1 min-w-0">{t.packageProgress}</span>
+                              <span className="whitespace-nowrap shrink-0">{overallProgress}%</span>
                             </div>
                             <Progress value={overallProgress} className="h-2" />
                           </div>
                           
                           {/* Deliverables breakdown */}
                           {Array.isArray(progress) && progress.length > 0 ? (
-                              <div className="space-y-3">
+                              <div className="space-y-2 sm:space-y-3 min-w-0">
                                 {progress.map(({ key, label, done, total, isBoolean }) => (
-                                <div key={key} className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
+                                <div key={key} className="flex items-start sm:items-center justify-between gap-2 min-w-0">
+                                  <div className="flex items-start sm:items-center gap-2 min-w-0 flex-1">
                                     {isBoolean ? (
                                       done === 1 ? (
-                                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                                        <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />
                                       ) : (
-                                        <Circle className="h-4 w-4 text-muted-foreground" />
+                                        <Circle className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
                                       )
                                     ) : null}
-                                    <span className="text-sm">{label}</span>
+                                    <span className="text-xs sm:text-sm break-words min-w-0 flex-1">{label}</span>
                                   </div>
                                   {isBoolean ? (
-                                    <Badge variant={done === 1 ? "default" : "outline"}>
+                                    <Badge variant={done === 1 ? "default" : "outline"} className="shrink-0 whitespace-nowrap">
                                       {done === 1 ? t.done : t.remainingDeliverables}
                                     </Badge>
                                   ) : (
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm text-muted-foreground">
+                                    <div className="flex items-center gap-2 shrink-0">
+                                      <span className="text-xs sm:text-sm text-muted-foreground whitespace-nowrap">
                                         {done}/{total}
                                       </span>
-                                      <Progress value={(done / total) * 100} className="w-16 h-2" />
+                                      <Progress value={(done / total) * 100} className="w-12 sm:w-16 h-2 shrink-0" />
                                     </div>
                                   )}
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <div className="text-sm text-muted-foreground text-center py-2">
+                            <div className="text-xs sm:text-sm text-muted-foreground text-center py-2 px-4">
                               {language === "ar" ? "لا توجد تفاصيل" : "No details available"}
                             </div>
                           )}
@@ -3092,56 +3294,75 @@ export default function FinancePage() {
               })
             )}
             {selectedClientDetails?.payments.length ? (
-              <div className="pt-2">
+              <div className="pt-2 min-w-0">
                 <h4 className="font-medium mb-3">{t.payments}</h4>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t.date}</TableHead>
-                      <TableHead>{t.amount}</TableHead>
-                      <TableHead>{t.actions}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {selectedClientDetails.payments.map(payment => (
-                      <TableRow key={payment.id}>
-                        <TableCell>{payment.paymentDate}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-col">
-                            <span className="font-medium">
-                              {formatCurrency(convertAmount(payment.amount, payment.currency as Currency, displayCurrency))}
-                            </span>
-                            {payment.currency !== displayCurrency && (
-                              <span className="text-xs text-muted-foreground">
-                                {formatCurrency(payment.amount, payment.currency as Currency)}
-                              </span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => openClientPaymentEdit(payment)}
-                              data-testid={`button-edit-client-payment-${payment.id}`}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              onClick={() => confirmDelete(() => deleteClientPaymentMutation.mutate(payment.id))}
-                              data-testid={`button-delete-client-payment-${payment.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-red-500" />
-                            </Button>
-                          </div>
-                        </TableCell>
+                <div className="w-full overflow-x-auto border rounded-xl">
+                  <Table className="min-w-[400px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="whitespace-nowrap">{t.date}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.service}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.amount}</TableHead>
+                        <TableHead className="whitespace-nowrap">{t.actions}</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {selectedClientDetails.payments.map(payment => (
+                        <TableRow key={payment.id}>
+                          {(() => {
+                            const paymentLockReason = getClientPaymentLockReason(payment);
+                            return (
+                              <>
+                          <TableCell className="whitespace-nowrap">{payment.paymentDate}</TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <span className="truncate block max-w-[140px]">
+                              {payment.serviceId ? getServiceName(payment.serviceId) : (language === "ar" ? "غير مخصصة" : "Unallocated")}
+                            </span>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-medium break-all">
+                                {formatCurrency(convertAmount(payment.amount, payment.currency as Currency, displayCurrency))}
+                              </span>
+                              {payment.currency !== displayCurrency && (
+                                <span className="text-xs text-muted-foreground break-all">
+                                  {formatCurrency(payment.amount, payment.currency as Currency)}
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            <div className="flex gap-1 shrink-0">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => openClientPaymentEdit(payment)}
+                                disabled={!!paymentLockReason}
+                                title={paymentLockReason || undefined}
+                                data-testid={`button-edit-client-payment-${payment.id}`}
+                              >
+                                <Pencil className="h-4 w-4 shrink-0" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => confirmDelete(() => deleteClientPaymentMutation.mutate(payment.id))}
+                                disabled={!!paymentLockReason}
+                                title={paymentLockReason || undefined}
+                                data-testid={`button-delete-client-payment-${payment.id}`}
+                              >
+                                <Trash2 className="h-4 w-4 text-red-500 shrink-0" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                              </>
+                            );
+                          })()}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             ) : null}
           </div>

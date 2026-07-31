@@ -22,10 +22,29 @@ import {
 import { cn } from "@/lib/utils";
 import { safeJsonParse } from "@/utils/safeJson";
 
+type SessionSegment = {
+  type: "work" | "break";
+  startAt: string;
+  endAt?: string;
+  breakType?: "short" | "long" | "lunch" | "meeting" | "other";
+  note?: string;
+};
+
+type SessionDetails = {
+  date: string;
+  status: "not_started" | "working" | "on_break" | "ended";
+  segments: string | SessionSegment[];
+  employee?: {
+    name?: string;
+    nameEn?: string | null;
+    profileImage?: string | null;
+  } | null;
+};
+
 interface SessionDetailsSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  session: any | null;
+  session: SessionDetails | null;
 }
 
 export function SessionDetailsSheet({ open, onOpenChange, session }: SessionDetailsSheetProps) {
@@ -34,7 +53,7 @@ export function SessionDetailsSheet({ open, onOpenChange, session }: SessionDeta
   if (!session) return null;
 
   const segments = typeof session.segments === 'string' 
-    ? safeJsonParse(session.segments, []) 
+    ? safeJsonParse<SessionSegment[]>(session.segments, [])
     : (session.segments || []);
 
   const t = {
@@ -116,8 +135,8 @@ export function SessionDetailsSheet({ open, onOpenChange, session }: SessionDeta
         <div className="mt-6 flex items-center gap-4">
           <EmployeeAvatar 
             name={session.employee?.name || "Unknown"} 
-            nameEn={session.employee?.nameEn} 
-            profileImage={session.employee?.profileImage}
+            nameEn={session.employee?.nameEn ?? undefined}
+            profileImage={session.employee?.profileImage ?? undefined}
             size="lg" 
           />
           <div>
@@ -142,7 +161,7 @@ export function SessionDetailsSheet({ open, onOpenChange, session }: SessionDeta
 
           <ScrollArea className="h-[400px] pe-4">
             <div className="relative ps-6 border-s-2 border-muted ms-2 space-y-8 pb-4">
-              {segments.map((segment: any, index: number) => {
+              {segments.map((segment, index: number) => {
                 const isWork = segment.type === "work";
                 const Icon = isWork ? Play : Coffee;
                 

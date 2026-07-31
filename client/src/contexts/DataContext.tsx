@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "../lib/queryClient";
 import { useCurrency, type Currency } from "./CurrencyContext";
 import { useAuth } from "./AuthContext";
-import type { ClientPayment, PayrollPayment } from "@shared/schema";
+import type { ClientPayment, PayrollPayment, Client as StoredClient, ClientService as StoredClientService, InsertClientService } from "@shared/schema";
 
 // ============ TYPE DEFINITIONS ============
 
@@ -212,6 +212,13 @@ export interface FinanceTransaction {
   clientId?: string;
   serviceId?: string;
 }
+
+type StoredClientRecord = StoredClient;
+type StoredClientServiceRecord = StoredClientService & {
+  deliverables?: ServiceDeliverable[] | string | null;
+  executionEmployeeIds?: string[] | string | null;
+  salesEmployeeId?: string | null;
+};
 
 // Salary type for employees
 export type SalaryType = "monthly" | "per_project";
@@ -1456,6 +1463,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const { convertAmount, currency: displayCurrency } = useCurrency();
   const { isAdmin, hasResourcePermission } = useAuth();
 
+  const invalidateFinanceQueries = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["/api/finance-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/finance-client-report"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/finance-ledger"] });
+  }, []);
+
   // ============ API QUERIES ============
   
   const canLeads = isAdmin || hasResourcePermission("leads");
@@ -1470,12 +1483,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
     enabled: canLeads,
   });
 
-  const { data: clientsData } = useQuery<any[]>({
+  const { data: clientsData } = useQuery<StoredClientRecord[]>({
     queryKey: ["/api/clients"],
     enabled: canClients || canWorkTracking,
   });
 
-  const { data: clientServicesData } = useQuery<any[]>({
+  const { data: clientServicesData } = useQuery<StoredClientServiceRecord[]>({
     queryKey: ["/api/client-services"],
     enabled: canClients || canWorkTracking,
   });
@@ -1524,12 +1537,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const subPackages = useMemo(() => {
     if (!Array.isArray(subPackagesData)) return [];
     
-    const safeParse = (val: any) => {
-      if (Array.isArray(val)) return val;
+    const safeParse = <T,>(val: unknown): T[] => {
+      if (Array.isArray(val)) return val as T[];
       if (typeof val === 'string') {
         try {
           const parsed = JSON.parse(val);
-          return Array.isArray(parsed) ? parsed : [];
+          return Array.isArray(parsed) ? (parsed as T[]) : [];
         } catch (e) {
           return [];
         }
@@ -1539,8 +1552,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     return subPackagesData.map(pkg => ({
       ...pkg,
-      deliverables: safeParse(pkg.deliverables),
-      platforms: safeParse(pkg.platforms)
+      deliverables: safeParse<Deliverable>(pkg.deliverables),
+      platforms: safeParse<Platform>(pkg.platforms)
     }));
   }, [subPackagesData]);
 
@@ -1563,7 +1576,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
     return clientsData.map(client => {
       const services = safeClientServices.filter(s => s.clientId === client.id).map(s => {
-        const parseMaybeArray = (val: any): string[] => {
+        const parseMaybeArray = (val: unknown): string[] => {
           if (Array.isArray(val)) return val;
           if (typeof val === "string" && val.trim() !== "") {
             // If it looks like a JSON array, try parsing it
@@ -1585,7 +1598,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           return [];
         };
         const execIds = parseMaybeArray(s.executionEmployeeIds);
-        let delivs: any[] = Array.isArray(s.deliverables) ? s.deliverables : [];
+        let delivs: ServiceDeliverable[] = Array.isArray(s.deliverables) ? s.deliverables : [];
         
         // Sync deliverables with sub-package definition if exists
         // This ensures updates to package deliverables (label, target, isBoolean) are reflected
@@ -1593,10 +1606,10 @@ export function DataProvider({ children }: { children: ReactNode }) {
           const sp = safeSubPackages.find(p => p.id === s.subPackageId);
           if (sp && Array.isArray(sp.deliverables) && sp.deliverables.length > 0) {
             // Map over package deliverables to ensure order and existence
-            delivs = sp.deliverables.map((t: any) => {
+            delivs = sp.deliverables.map((t) => {
               // Find existing progress if any
               const existing = Array.isArray(s.deliverables) 
-                ? s.deliverables.find((d: any) => d.key === t.key) 
+                ? s.deliverables.find((d) => d.key === t.key)
                 : undefined;
               
               // Use package definition as master for metadata
@@ -1661,8 +1674,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
           status: s.status,
           serviceAssignees: execIds,
           // surface sales employee id if present for work-tracking header
-          // @ts-ignore
-          salesEmployeeId: (s as any).salesEmployeeId,
+          salesEmployeeId: s.salesEmployeeId || undefined,
           mainPackageId: s.mainPackageId,
           subPackageId: s.subPackageId,
           completedDate: s.completedAt ? new Date(s.completedAt).toISOString().split('T')[0] : undefined,
@@ -1670,7 +1682,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         };
       }) || [];
 
-      const parseMaybeArray = (val: any): string[] => {
+      const parseMaybeArray = (val: unknown): string[] => {
         if (Array.isArray(val)) return val;
         if (typeof val === "string") {
           try { const arr = JSON.parse(val); return Array.isArray(arr) ? arr : []; } catch { return []; }
@@ -1681,12 +1693,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
       return {
         ...client,
         services,
+        email: client.email || undefined,
+        phone: client.phone || undefined,
+        company: client.company || undefined,
+        country: client.country || undefined,
+        source: client.source || undefined,
+        notes: client.notes || undefined,
+        createdAt: client.createdAt ? new Date(client.createdAt).toISOString() : new Date().toISOString(),
+        convertedFromLeadId: client.convertedFromLeadId || undefined,
+        leadCreatedAt: client.leadCreatedAt ? new Date(client.leadCreatedAt).toISOString() : undefined,
         // Ensure other fields match ConfirmedClient interface
         salesOwnerId: client.salesOwnerId || undefined,
         assignedManagerId: client.assignedManagerId || undefined,
         salesOwners: parseMaybeArray(client.salesOwners),
         assignedStaff: parseMaybeArray(client.assignedStaff),
-        completedDate: client.completedDate ? new Date(client.completedDate).toISOString().split('T')[0] : undefined,
       } as ConfirmedClient;
     });
   }, [clientsData, clientServicesData, mainPackagesData, subPackages]);
@@ -1779,6 +1799,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
       queryClient.invalidateQueries({ queryKey: ["/api/client-services"] });
+      invalidateFinanceQueries();
     },
   });
 
@@ -1788,7 +1809,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   }, [addClientMutation]);
 
   const addClientWithServiceMutation = useMutation({
-    mutationFn: async ({ client, service }: { client: any, service: any }) => {
+    mutationFn: async ({ client, service }: { client: Omit<ConfirmedClient, "id" | "createdAt" | "services">; service: Omit<ServiceItem, "id"> }) => {
       // Map service item to server format
       const serviceData = {
         // clientId will be handled by server
@@ -1810,6 +1831,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
       queryClient.invalidateQueries({ queryKey: ["/api/client-services"] });
+      invalidateFinanceQueries();
     },
   });
 
@@ -1827,6 +1849,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      invalidateFinanceQueries();
     },
   });
 
@@ -1841,6 +1864,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
       queryClient.invalidateQueries({ queryKey: ["/api/client-services"] });
+      invalidateFinanceQueries();
     },
   });
 
@@ -1869,6 +1893,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       queryClient.invalidateQueries({ queryKey: ["/api/client-services"] });
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      invalidateFinanceQueries();
     },
   });
 
@@ -1879,7 +1904,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const updateServiceMutation = useMutation({
     mutationFn: async ({ id, updates }: { id: string; updates: Partial<ServiceItem> }) => {
       // Map ServiceItem updates to InsertClientService updates
-      const serviceUpdates: any = {};
+      const serviceUpdates: Partial<InsertClientService> = {};
+      const payload: Partial<InsertClientService> & { deliverables?: ServiceDeliverable[] } = serviceUpdates;
       if (updates.serviceName) serviceUpdates.serviceName = updates.serviceName;
       if (updates.serviceNameEn) serviceUpdates.serviceNameEn = updates.serviceNameEn;
       if (updates.startDate) serviceUpdates.startDate = updates.startDate;
@@ -1891,15 +1917,15 @@ export function DataProvider({ children }: { children: ReactNode }) {
       if (updates.mainPackageId) serviceUpdates.mainPackageId = updates.mainPackageId;
       if (updates.subPackageId) serviceUpdates.subPackageId = updates.subPackageId;
       if (updates.notes) serviceUpdates.notes = updates.notes;
-      if (updates.completedDate) serviceUpdates.completedAt = updates.completedDate ? new Date(updates.completedDate) : null;
-      if (updates.deliverables) serviceUpdates.deliverables = updates.deliverables;
+      if (updates.deliverables) payload.deliverables = updates.deliverables;
 
-      await apiRequest("PATCH", `/api/client-services/${id}`, serviceUpdates);
+      await apiRequest("PATCH", `/api/client-services/${id}`, payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/client-services"] });
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
       queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      invalidateFinanceQueries();
     },
   });
 
@@ -1922,6 +1948,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/client-services"] });
       queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      invalidateFinanceQueries();
     },
   });
 

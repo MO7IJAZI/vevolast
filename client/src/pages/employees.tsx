@@ -105,6 +105,7 @@ type Department = keyof typeof departments;
 export default function EmployeesPage() {
   const { language } = useLanguage();
   const { formatCurrency, convertAmount, currency: displayCurrency } = useCurrency();
+  const supportedCurrencies = new Set<Currency>(["TRY", "USD", "EUR", "SAR"]);
   const { toast } = useToast();
   const { user, isAdmin, hasPermission } = useAuth();
   const { employees, clients, leads, invoices, addEmployee, updateEmployee, deleteEmployee, reassignAndDeleteEmployee } = useData();
@@ -302,7 +303,11 @@ export default function EmployeesPage() {
           invDate.getFullYear() === currentYear &&
           (client?.salesOwners?.includes(employee.id) || client?.salesOwnerId === employee.id);
       })
-      .reduce((sum, inv) => sum + convertAmount(inv.amount || 0, inv.currency as any, displayCurrency), 0);
+      .reduce((sum, inv) => sum + convertAmount(
+        inv.amount || 0,
+        supportedCurrencies.has(inv.currency as Currency) ? (inv.currency as Currency) : "USD",
+        displayCurrency
+      ), 0);
 
     return {
       assignedClients: assignedClients.length,
@@ -316,7 +321,7 @@ export default function EmployeesPage() {
     };
   };
 
-  const updateFormField = (field: string, value: any) => {
+  const updateFormField = <K extends keyof typeof formData>(field: K, value: (typeof formData)[K]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -359,7 +364,9 @@ export default function EmployeesPage() {
         salaryAmount: employee.salaryAmount?.toString() || "",
         rate: employee.rate?.toString() || "",
         rateType: employee.rateType || "per_project",
-        salaryCurrency: (employee.salaryCurrency as any) || "TRY",
+        salaryCurrency: supportedCurrencies.has(employee.salaryCurrency as Currency)
+          ? (employee.salaryCurrency as typeof formData.salaryCurrency)
+          : "TRY",
         salaryNotes: employee.salaryNotes || "",
         isActive: employee.isActive,
       });
@@ -397,10 +404,10 @@ export default function EmployeesPage() {
       });
       
       return true;
-    } catch (error: any) {
+    } catch (error) {
       toast({
         title: t.invitationFailed,
-        description: error.message || (language === "ar" ? "حدث خطأ" : "An error occurred"),
+        description: error instanceof Error ? error.message : (language === "ar" ? "حدث خطأ" : "An error occurred"),
         variant: "destructive",
       });
       return false;
@@ -819,7 +826,7 @@ export default function EmployeesPage() {
                    value={formData.roleId}
                    onValueChange={(v) => updateFormField("roleId", v)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full min-w-0">
                     <SelectValue placeholder={t.selectRole} />
                   </SelectTrigger>
                   <SelectContent>
@@ -850,11 +857,11 @@ export default function EmployeesPage() {
                 <Select
                   value={formData.department}
                   onValueChange={(v) => {
-                    updateFormField("department", v);
+                    updateFormField("department", v as Department);
                     updateFormField("jobTitle", undefined);
                   }}
                 >
-                  <SelectTrigger data-testid="select-department">
+                  <SelectTrigger className="w-full min-w-0" data-testid="select-department">
                     <SelectValue placeholder={t.selectDepartment} />
                   </SelectTrigger>
                   <SelectContent>
@@ -875,10 +882,10 @@ export default function EmployeesPage() {
                 <Select
                   value={formData.jobTitle || ""}
                   onValueChange={(v) => {
-                    updateFormField("jobTitle", v);
+                    updateFormField("jobTitle", v as JobTitle);
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full min-w-0">
                     <SelectValue placeholder={t.selectJobTitle} />
                   </SelectTrigger>
                   <SelectContent>
@@ -895,7 +902,7 @@ export default function EmployeesPage() {
             {/* Salary Section - Only visible to Admin */}
             {isAdmin && (
               <div className="border-t pt-4 mt-2">
-                <div className="flex items-center gap-2 mb-4">
+                <div className="flex items-center gap-2 mb-4 flex-wrap">
                   <DollarSign className="h-4 w-4 text-green-600" />
                   <h4 className="font-medium text-green-700">{t.salary}</h4>
                 </div>
@@ -905,9 +912,9 @@ export default function EmployeesPage() {
                     <Label>{t.salaryType}</Label>
                     <Select
                       value={formData.salaryType}
-                      onValueChange={(v) => updateFormField("salaryType", v)}
+                      onValueChange={(v) => updateFormField("salaryType", v as "monthly" | "per_project")}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="w-full min-w-0">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -927,14 +934,14 @@ export default function EmployeesPage() {
                         value={formData.salaryType === "monthly" ? formData.salaryAmount : formData.rate}
                         onChange={(e) => updateFormField(formData.salaryType === "monthly" ? "salaryAmount" : "rate", e.target.value)}
                         placeholder="0.00"
-                        className="ps-16"
+                        className="ps-16 min-w-0"
                       />
                        <div className="absolute start-0 top-0 h-full w-14 border-e bg-muted flex items-center justify-center text-xs font-medium text-muted-foreground rounded-s-md">
                          <Select 
                            value={formData.salaryCurrency} 
-                           onValueChange={(v) => updateFormField("salaryCurrency", v)}
+                           onValueChange={(v) => updateFormField("salaryCurrency", v as typeof formData.salaryCurrency)}
                          >
-                            <SelectTrigger className="h-full border-0 bg-transparent px-1 focus:ring-0 w-full justify-center">
+                            <SelectTrigger className="h-full border-0 bg-transparent px-1 focus:ring-0 w-full justify-center min-w-0">
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -954,9 +961,9 @@ export default function EmployeesPage() {
                     <Label>{t.rateType}</Label>
                     <Select
                       value={formData.rateType}
-                      onValueChange={(v) => updateFormField("rateType", v)}
+                      onValueChange={(v) => updateFormField("rateType", v as typeof formData.rateType)}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger className="w-full min-w-0">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -989,11 +996,11 @@ export default function EmployeesPage() {
             </div>
         </div>
 
-        <div className="flex justify-end gap-2 mt-4">
-          <Button variant="outline" onClick={() => setIsModalOpen(false)}>
+        <div className="flex justify-end gap-2 mt-4 flex-wrap w-full">
+          <Button variant="outline" onClick={() => setIsModalOpen(false)} className="w-full sm:w-auto">
             {t.cancel}
           </Button>
-          <Button onClick={handleSave}>{t.save}</Button>
+          <Button onClick={handleSave} className="w-full sm:w-auto">{t.save}</Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -1001,12 +1008,12 @@ export default function EmployeesPage() {
 
   return (
     <div className="p-6 space-y-6 overflow-x-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">{t.title}</h1>
           <p className="text-muted-foreground">{t.subtitle}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto min-w-0">
           <HasPermission permission="employees:create">
             <Button onClick={() => openModal()} className="w-full sm:w-auto">
               <Plus className="me-2 h-4 w-4" /> {t.addEmployee}
@@ -1015,8 +1022,8 @@ export default function EmployeesPage() {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
-        <div className="relative w-full sm:w-72">
+      <div className="flex flex-col sm:flex-row gap-4 items-center justify-between flex-wrap w-full min-w-0">
+        <div className="relative w-full sm:w-72 min-w-0">
           <Search className="absolute start-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={t.search}
@@ -1025,13 +1032,13 @@ export default function EmployeesPage() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex items-center gap-2 w-full sm:w-auto min-w-0 flex-wrap">
           <Filter className="h-4 w-4 text-muted-foreground" />
           <Select
             value={departmentFilter}
             onValueChange={(v) => setDepartmentFilter(v as Department | "all")}
           >
-            <SelectTrigger className="w-full sm:w-[180px]">
+            <SelectTrigger className="w-full sm:w-[180px] min-w-0">
               <SelectValue placeholder={t.selectDepartment} />
             </SelectTrigger>
             <SelectContent>
@@ -1047,7 +1054,7 @@ export default function EmployeesPage() {
       </div>
 
       {employees.length === 0 ? (
-        <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed">
+        <Card className="flex flex-col items-center justify-center p-12 text-center border-dashed w-full min-w-0">
           <div className="h-20 w-20 rounded-full bg-muted flex items-center justify-center mb-4">
             <UserCircle className="h-10 w-10 text-muted-foreground" />
           </div>
@@ -1056,7 +1063,7 @@ export default function EmployeesPage() {
             {t.emptySubtitle}
           </p>
           <HasPermission permission="employees:create">
-            <Button onClick={() => openModal()}>
+            <Button onClick={() => openModal()} className="w-full sm:w-auto">
               <Plus className="me-2 h-4 w-4" /> {t.addEmployee}
             </Button>
           </HasPermission>
@@ -1068,7 +1075,7 @@ export default function EmployeesPage() {
             const roleName = getRoleName(employee);
 
             return (
-              <Card key={employee.id} className="overflow-hidden hover:shadow-md transition-shadow">
+              <Card key={employee.id} className="overflow-hidden hover:shadow-md transition-shadow w-full min-w-0">
                 <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between space-y-0 gap-2">
                   <div className="flex items-start gap-3 min-w-0 flex-1">
                     <EmployeeAvatar 
@@ -1185,7 +1192,7 @@ export default function EmployeesPage() {
                   {language === "ar" ? "عيّن بديل (اختياري)" : "Assign replacement (optional)"}
                 </Label>
                 <Select value={reassignTo} onValueChange={setReassignTo}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full min-w-0">
                     <SelectValue placeholder={language === "ar" ? "اختر موظفاً نشطاً" : "Select an active employee"} />
                   </SelectTrigger>
                   <SelectContent>
@@ -1199,8 +1206,8 @@ export default function EmployeesPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>
+              <div className="flex justify-end gap-2 flex-wrap w-full">
+                <Button variant="outline" onClick={() => setShowDeleteDialog(false)} className="w-full sm:w-auto">
                   {t.cancel}
                 </Button>
                 <Button variant="secondary" onClick={async () => {
@@ -1212,7 +1219,7 @@ export default function EmployeesPage() {
                   } catch {
                     toast({ variant: "destructive", title: language === "ar" ? "خطأ" : "Error", description: language === "ar" ? "فشل حذف الموظف" : "Failed to delete employee" });
                   }
-                }}>
+                }} className="w-full sm:w-auto">
                   {language === "ar" ? "حذف بدون تعيين" : "Delete without reassignment"}
                 </Button>
                 <Button onClick={async () => {
@@ -1224,7 +1231,7 @@ export default function EmployeesPage() {
                   } catch {
                     toast({ variant: "destructive", title: language === "ar" ? "خطأ" : "Error", description: language === "ar" ? "فشل حذف الموظف" : "Failed to delete employee" });
                   }
-                }} disabled={!reassignTo}>
+                }} disabled={!reassignTo} className="w-full sm:w-auto">
                   {language === "ar" ? "حذف وتعيين البديل" : "Delete and reassign"}
                 </Button>
               </div>
@@ -1242,14 +1249,14 @@ export default function EmployeesPage() {
               {language === "ar" ? "فشل إرسال البريد الإلكتروني، ولكن يمكنك نسخ الرابط التالي وإرساله للموظف:" : "Email failed to send, but you can copy the following link and send it to the employee:"}
             </DialogDescription>
           </DialogHeader>
-          <div className="flex items-center space-x-2 mt-4">
-            <Input readOnly value={inviteLinkData || ""} />
+          <div className="flex items-center space-x-2 mt-4 flex-wrap w-full gap-2">
+            <Input readOnly value={inviteLinkData || ""} className="flex-1 min-w-0" />
             <Button size="icon" onClick={() => {
               if (inviteLinkData) {
                 navigator.clipboard.writeText(inviteLinkData);
                 toast({ title: language === "ar" ? "تم النسخ" : "Copied" });
               }
-            }}>
+            }} className="w-full sm:w-auto">
               <Copy className="h-4 w-4" />
             </Button>
           </div>

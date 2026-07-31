@@ -61,11 +61,16 @@ interface ClientInvoice {
   paidDate?: string;
 }
 
+type ClientPortalUser = {
+  name: string;
+  isClientUser?: boolean;
+};
+
 export default function ClientDashboard() {
   const { language } = useLanguage();
   const [, setLocation] = useLocation();
 
-  const { data: user, isLoading: isLoadingUser } = useQuery({
+  const { data: user, isLoading: isLoadingUser } = useQuery<ClientPortalUser>({
     queryKey: ["/api/auth/me"],
   });
 
@@ -179,7 +184,7 @@ export default function ClientDashboard() {
     );
   }
 
-  if (!user || !(user as any).isClientUser) {
+  if (!user || !user.isClientUser) {
     setLocation("/client/login");
     return null;
   }
@@ -197,7 +202,7 @@ export default function ClientDashboard() {
               <span className="text-white font-bold">V</span>
             </div>
             <div>
-              <h1 className="font-semibold">{content.welcome}, {(user as any).name}</h1>
+              <h1 className="font-semibold">{content.welcome}, {user.name}</h1>
               <p className="text-sm text-muted-foreground">{content.dashboard}</p>
             </div>
           </div>

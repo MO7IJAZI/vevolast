@@ -9,6 +9,10 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Loader2, Eye, EyeOff, Lock, CheckCircle2, XCircle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Error";
+}
+
 export default function ResetPasswordPage() {
   const [, setLocation] = useLocation();
   const searchString = useSearch();
@@ -127,9 +131,9 @@ export default function ResetPasswordPage() {
         title: content.success,
       });
       setLocation("/login");
-    } catch (err: any) {
+    } catch (err) {
       toast({
-        title: err.message || "Error",
+        title: getErrorMessage(err),
         variant: "destructive",
       });
     } finally {
