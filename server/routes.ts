@@ -28,6 +28,7 @@ import { registerObjectStorageRoutes } from "./replit_integrations/object_storag
 import { getExchangeRates, convertCurrency, refreshExchangeRates } from "./exchangeRates";
 import { requireAdmin, requirePermission, requireAuth, requireAnyPermission } from "./auth";
 import { safeJsonParse } from "./utils/safeJson";
+import { sendEmail } from "./email";
 
 type SessionSegment = {
   type: "work" | "break";
@@ -475,8 +476,7 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid invoice data", details: error.errors });
       }
-      console.error("Error creating invoice:", error);
-      res.status(500).json({ error: "Failed to create invoice" });
+      return respondWithFinanceError(res, error, "Failed to create invoice");
     }
   });
 
@@ -492,8 +492,133 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Invalid invoice data", details: error.errors });
       }
-      console.error("Error updating invoice:", error);
-      res.status(500).json({ error: "Failed to update invoice" });
+      return respondWithFinanceError(res, error, "Failed to update invoice");
+    }
+  });
+
+  app.post("/api/invoices/:id/send", requirePermission("invoices", "send"), async (req, res) => {
+    try {
+      const invoice = await storage.getInvoice(req.params.id);
+      if (!invoice) {
+        return res.status(404).json({ error: "Invoice not found" });
+      }
+
+      const client = await storage.getClient(invoice.clientId);
+      const email = typeof req.body?.email === "string" && req.body.email.trim()
+        ? req.body.email.trim()
+        : client?.email;
+      const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+
+      if (!email) {
+        return res.status(400).json({ error: "Recipient email is required" });
+      }
+
+      const settings = await storage.getSystemSettings();
+      const items = Array.isArray(invoice.items)
+        ? invoice.items
+        : safeJsonParse<{ description: string; quantity: number; unitPrice: number; kind?: "standard" | "tax" | "discount" }[]>(String(invoice.items || "[]"), []);
+      const subtotal = items
+        .filter((item) => item && item.kind !== "tax" && item.kind !== "discount")
+        .reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitPrice || 0)), 0);
+      const tax = items
+        .filter((item) => item?.kind === "tax")
+        .reduce((sum, item) => sum + Math.abs(Number(item.quantity || 0) * Number(item.unitPrice || 0)), 0);
+      const discount = items
+        .filter((item) => item?.kind === "discount")
+        .reduce((sum, item) => sum + Math.abs(Number(item.quantity || 0) * Number(item.unitPrice || 0)), 0);
+
+      const html = `
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial, sans-serif; background:#f6f7fb; margin:0; padding:24px; color:#111827; }
+    .container { max-width:760px; margin:0 auto; background:#fff; border-radius:16px; padding:32px; box-shadow:0 10px 30px rgba(0,0,0,0.08); }
+    .header { display:flex; justify-content:space-between; gap:24px; border-bottom:1px solid #e5e7eb; padding-bottom:20px; margin-bottom:24px; }
+    .muted { color:#6b7280; font-size:14px; }
+    table { width:100%; border-collapse:collapse; margin-top:16px; }
+    th, td { padding:12px; border-bottom:1px solid #e5e7eb; text-align:right; }
+    th { background:#f9fafb; }
+    .summary { margin-top:20px; width:320px; margin-inline-start:auto; }
+    .row { display:flex; justify-content:space-between; padding:8px 0; }
+    .total { font-weight:700; border-top:2px solid #111827; margin-top:8px; padding-top:12px; }
+    .note { margin-top:20px; padding:16px; background:#f9fafb; border-radius:12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <h1 style="margin:0;">Vevoline</h1>
+        <div class="muted">Invoice / فاتورة</div>
+      </div>
+      <div>
+        <div><strong>#${invoice.invoiceNumber}</strong></div>
+        <div class="muted">Issue: ${invoice.issueDate}</div>
+        <div class="muted">Due: ${invoice.dueDate}</div>
+      </div>
+    </div>
+
+    <div style="margin-bottom:16px;">
+      <div class="muted">Bill To / العميل</div>
+      <div><strong>${client?.name || invoice.clientName}</strong></div>
+      ${client?.company ? `<div>${client.company}</div>` : ""}
+      ${email ? `<div>${email}</div>` : ""}
+      ${client?.phone ? `<div>${client.phone}</div>` : ""}
+    </div>
+
+    ${message ? `<div class="note">${message}</div>` : ""}
+
+    <table>
+      <thead>
+        <tr>
+          <th>الوصف</th>
+          <th>الكمية</th>
+          <th>سعر الوحدة</th>
+          <th>الإجمالي</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${items.map((item) => `
+          <tr>
+            <td>${item.description}</td>
+            <td>${item.quantity}</td>
+            <td>${Number(item.unitPrice).toLocaleString()} ${invoice.currency}</td>
+            <td>${(Number(item.quantity) * Number(item.unitPrice)).toLocaleString()} ${invoice.currency}</td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+
+    <div class="summary">
+      <div class="row"><span>الإجمالي قبل الضريبة والخصم</span><span>${subtotal.toLocaleString()} ${invoice.currency}</span></div>
+      <div class="row"><span>الضريبة</span><span>${tax.toLocaleString()} ${invoice.currency}</span></div>
+      <div class="row"><span>الخصم</span><span>${discount.toLocaleString()} ${invoice.currency}</span></div>
+      <div class="row total"><span>الإجمالي</span><span>${Number(invoice.amount).toLocaleString()} ${invoice.currency}</span></div>
+    </div>
+
+    ${invoice.notes ? `<div class="note">${invoice.notes}</div>` : ""}
+    ${settings?.settings && typeof settings.settings === "object" && "invoiceFooter" in settings.settings && typeof settings.settings.invoiceFooter === "string" && settings.settings.invoiceFooter
+      ? `<div class="note">${settings.settings.invoiceFooter}</div>`
+      : ""}
+  </div>
+</body>
+</html>`;
+
+      const sent = await sendEmail(email, `Invoice ${invoice.invoiceNumber} - Vevoline`, html);
+      if (!sent) {
+        return res.status(503).json({ error: "Invoice email could not be sent. Check SMTP configuration." });
+      }
+
+      if (invoice.status === "draft") {
+        await storage.updateInvoice(invoice.id, { status: "sent" });
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      return respondWithFinanceError(res, error, "Failed to send invoice");
     }
   });
 
@@ -505,8 +630,7 @@ export async function registerRoutes(
       }
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting invoice:", error);
-      res.status(500).json({ error: "Failed to delete invoice" });
+      return respondWithFinanceError(res, error, "Failed to delete invoice");
     }
   });
 

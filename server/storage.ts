@@ -402,6 +402,133 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+  private normalizeInvoiceItems(items: unknown): { description: string; quantity: number; unitPrice: number; kind?: "standard" | "tax" | "discount" }[] {
+    if (!Array.isArray(items)) {
+      return [];
+    }
+
+    type NormalizedInvoiceItem = { description: string; quantity: number; unitPrice: number; kind?: "standard" | "tax" | "discount" };
+
+    return items
+      .map((item): NormalizedInvoiceItem | null => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        const rawDescription = "description" in item && typeof item.description === "string"
+          ? item.description.trim()
+          : "";
+        const quantity = Number("quantity" in item ? item.quantity : 0);
+        const unitPrice = Number("unitPrice" in item ? item.unitPrice : 0);
+
+        const kind = "kind" in item && (item.kind === "standard" || item.kind === "tax" || item.kind === "discount")
+          ? item.kind
+          : undefined;
+
+        if (!rawDescription && quantity <= 0 && unitPrice <= 0) {
+          return null;
+        }
+
+        return {
+          description: rawDescription,
+          quantity: Number.isFinite(quantity) && quantity > 0 ? Math.round(quantity) : 1,
+          unitPrice: Number.isFinite(unitPrice)
+            ? (kind === "discount" ? -Math.abs(Math.round(unitPrice)) : Math.round(unitPrice))
+            : 0,
+          kind,
+        };
+      })
+      .filter((item): item is NormalizedInvoiceItem => item !== null);
+  }
+
+  private calculateInvoiceAmount(items: { description: string; quantity: number; unitPrice: number; kind?: "standard" | "tax" | "discount" }[]): number {
+    return items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+  }
+
+  private async prepareInvoicePayload(
+    executor: FinanceExecutor,
+    invoiceInput: Partial<InsertInvoice>,
+    existingInvoice?: Invoice,
+  ): Promise<InsertInvoice> {
+    const merged = {
+      ...existingInvoice,
+      ...invoiceInput,
+    };
+
+    const invoiceNumber = typeof merged.invoiceNumber === "string" ? merged.invoiceNumber.trim() : "";
+    if (!invoiceNumber) {
+      throw new FinanceMutationError("Invoice number is required.", 400);
+    }
+
+    const duplicateInvoices = await executor
+      .select()
+      .from(invoices)
+      .where(eq(invoices.invoiceNumber, invoiceNumber));
+    const duplicateInvoice = duplicateInvoices.find((entry) => entry.id !== existingInvoice?.id);
+    if (duplicateInvoice) {
+      throw new FinanceMutationError("Invoice number already exists.", 409);
+    }
+
+    if (!merged.clientId) {
+      throw new FinanceMutationError("Client is required for the invoice.", 400);
+    }
+
+    const clientRows = await executor.select().from(clients).where(eq(clients.id, merged.clientId));
+    const client = clientRows[0];
+    if (!client) {
+      throw new FinanceMutationError("Selected client was not found.", 404);
+    }
+
+    const serviceId = typeof merged.serviceId === "string" && merged.serviceId.trim()
+      ? merged.serviceId.trim()
+      : undefined;
+
+    if (serviceId) {
+      const serviceRows = await executor.select().from(clientServices).where(eq(clientServices.id, serviceId));
+      const service = serviceRows[0];
+      if (!service) {
+        throw new FinanceMutationError("Selected service was not found.", 404);
+      }
+      if (service.clientId !== merged.clientId) {
+        throw new FinanceMutationError("Selected service does not belong to the selected client.", 409);
+      }
+    }
+
+    const items = this.normalizeInvoiceItems(merged.items);
+    if (items.length === 0) {
+      throw new FinanceMutationError("Invoice must contain at least one valid item.", 400);
+    }
+
+    const amount = this.calculateInvoiceAmount(items);
+    if (amount <= 0) {
+      throw new FinanceMutationError("Invoice total must be greater than zero.", 400);
+    }
+
+    if (!merged.issueDate || !merged.dueDate) {
+      throw new FinanceMutationError("Issue date and due date are required.", 400);
+    }
+
+    if (new Date(merged.dueDate).getTime() < new Date(merged.issueDate).getTime()) {
+      throw new FinanceMutationError("Due date cannot be earlier than issue date.", 400);
+    }
+
+    return {
+      invoiceNumber,
+      clientId: merged.clientId,
+      serviceId,
+      clientName: client.name,
+      amount,
+      currency: merged.currency || existingInvoice?.currency || "USD",
+      status: merged.status || existingInvoice?.status || "draft",
+      issueDate: merged.issueDate,
+      dueDate: merged.dueDate,
+      paidDate: merged.paidDate || undefined,
+      paymentMethod: merged.paymentMethod || undefined,
+      items,
+      notes: typeof merged.notes === "string" && merged.notes.trim() ? merged.notes.trim() : undefined,
+    };
+  }
+
   private async syncInvoicePayment(executor: FinanceExecutor, invoice: Invoice): Promise<void> {
     const existingPayment = await this.findInvoicePaymentByInvoiceId(executor, invoice.id);
 
@@ -2258,7 +2385,8 @@ export class DatabaseStorage implements IStorage {
   async createInvoice(invoice: InsertInvoice): Promise<Invoice> {
     return await db.transaction(async (tx) => {
       const id = randomUUID();
-      await tx.insert(invoices).values({ ...invoice, id });
+      const preparedInvoice = await this.prepareInvoicePayload(tx, invoice);
+      await tx.insert(invoices).values({ ...preparedInvoice, id });
       const result = await tx.select().from(invoices).where(eq(invoices.id, id));
       const createdInvoice = result[0];
       await this.syncInvoicePayment(tx, createdInvoice);
@@ -2273,9 +2401,11 @@ export class DatabaseStorage implements IStorage {
       
       if (!existingInvoice) return undefined;
 
+      const preparedInvoice = await this.prepareInvoicePayload(tx, invoice, existingInvoice);
+
       await tx
         .update(invoices)
-        .set({ ...invoice, updatedAt: new Date() })
+        .set({ ...preparedInvoice, updatedAt: new Date() })
         .where(eq(invoices.id, id));
 
       const updatedInvoices = await tx.select().from(invoices).where(eq(invoices.id, id));
