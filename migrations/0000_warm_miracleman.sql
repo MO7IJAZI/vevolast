@@ -168,6 +168,7 @@ CREATE TABLE `invitations` (
 	`name_en` varchar(255),
 	`department` varchar(100),
 	`employee_id` varchar(100),
+	`profile_image` text,
 	`used_at` datetime,
 	`invited_by` varchar(36),
 	`created_at` timestamp DEFAULT (now()),
